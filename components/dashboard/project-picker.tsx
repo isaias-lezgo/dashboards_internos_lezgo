@@ -165,7 +165,17 @@ export function ProjectPicker({ projects }: { projects: PickerProject[] }) {
                         // refuses without dangerouslyAllowSVG. alt="" because the
                         // project name is rendered directly below.
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={logo.src} alt="" className="max-h-full max-w-full object-contain" />
+                        <img
+                          src={logo.src}
+                          alt=""
+                          className={cn(
+                            "max-h-full max-w-full object-contain",
+                            // This wordmark ships at only 296×144, so filling the plate
+                            // upscales it past its resolution and it reads as pixelated.
+                            // Cap it below native width so it always renders sharp.
+                            p.id === "lezgo-suite" && "max-w-[180px]",
+                          )}
+                        />
                       ) : (
                         <span className="text-center text-sm font-semibold" style={{ color: INK_NAVY }}>
                           {p.name}
