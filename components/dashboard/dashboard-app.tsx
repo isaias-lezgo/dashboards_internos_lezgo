@@ -27,6 +27,8 @@ import {
   ClipboardList,
   Sparkles,
   LayoutGrid,
+  Award,
+  Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -252,11 +254,31 @@ export function DashboardApp() {
         <div className="flex gap-6 sm:gap-8">
           {(
             [
-              { id: "marketing" as const, label: "Marketing", icon: TrendingUp },
-              { id: "sales" as const, label: "Ventas", icon: BarChart3 },
-              { id: "conversations" as const, label: "Asistente IA", icon: Sparkles },
+              { id: "marketing" as const, label: "Marketing", icon: TrendingUp, locked: false },
+              { id: "sales" as const, label: "Ventas", icon: BarChart3, locked: false },
+              { id: "conversations" as const, label: "Asistente IA", icon: Sparkles, locked: false },
+              { id: "advisors" as const, label: "Asesores", icon: Award, locked: true },
             ] as const
-          ).map(({ id, label, icon: Icon }) => {
+          ).map(({ id, label, icon: Icon, locked }) => {
+            if (locked) {
+              return (
+                <TooltipProvider key={id} delayDuration={100}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        aria-disabled
+                        className="relative flex cursor-not-allowed items-center gap-2 py-3 text-sm font-medium text-muted-foreground/50"
+                      >
+                        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                        {label}
+                        <Lock className="h-3 w-3 shrink-0" aria-hidden />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Próximamente</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )
+            }
             const active = activeTab === id
             return (
               <button
