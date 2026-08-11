@@ -31,14 +31,39 @@ operan sobre el dataset completo en el cliente. Sumando para el peor caso:
 
 | Etapa | Hoy | Con caché |
 |---|---:|---:|
-| Traer de GHL | ~33s | — |
-| Leer de la base | — | ~0.5s |
-| Mandar al navegador (gzip, ~2.5 MB en el cable) | incluido arriba | ~0.5-1s |
+| Traer de GHL | 34-60s | — |
+| Leer de la base | — | ~0.3-0.5s |
+| Mandar al navegador (2.49 MB gzip en el cable) | incluido arriba | ~0.5s |
 | `JSON.parse` + construir índices | ~0.5s | ~0.5s |
-| **Total** | **~34s** | **~1.5-2s** |
+| **Total** | **34-60s** | **~1.5-2s** |
 
-De 34 segundos a ~2. Bajar de ahí es otro proyecto: exige cambiar qué recibe el
-navegador, no dónde se guarda.
+De decenas de segundos a ~2. Bajar de ahí es otro proyecto: exige cambiar qué recibe
+el navegador, no dónde se guarda.
+
+### Medido contra la base real (2026-08-11)
+
+Probado con el payload real de Yconia contra la instancia de Neon ya creada
+(PostgreSQL 17.10, `us-east-1`):
+
+| Medición | Resultado |
+|---|---|
+| Compresión del payload | 27.7 MB → **2.49 MB** (11.1x), 203 ms |
+| Escritura a Neon | 1,448 ms |
+| Lectura de Neon | 1,294-1,568 ms **desde Querétaro** |
+| Descompresión | 25-41 ms |
+| En disco, esa fila | 2,720 kB → los seis proyectos ≈ **16 MB** de 0.5 GB del tier gratuito |
+| Integridad del roundtrip | bytes idénticos, acentos y emojis incluidos |
+| Arranque en frío (escala a cero) | 430 ms |
+
+La lectura de ~1.5s se midió desde una laptop en México contra `us-east-1`; una
+función de Vercel en la misma región debería bajarla a unas décimas. **Hay que medirla
+de nuevo ya desplegada en vez de asumirlo** — si resultara ser el costo dominante, la
+salida es mover el payload a almacenamiento de objetos dejando Postgres para el
+historial futuro.
+
+**La región importa:** la base quedó en `us-east-1`, así que las funciones de Vercel
+tienen que estar en `iad1`. Si quedan en continentes distintos, cada lectura paga el
+viaje y se come buena parte de lo ganado.
 
 ## No-objetivos
 
@@ -185,11 +210,12 @@ El stream NDJSON no cambia de forma: en una lectura caliente llega un solo frame
 - **`export const maxDuration = 300`** en la ruta del dashboard. El sync de Yconia tarda
   34s y el tope por defecto es mucho menor.
 
-  **Esto asume plan Pro en Vercel, que el usuario va a contratar.** Los 34s técnicamente
-  caben en el techo de 60s de Hobby, pero sin margen para un día en que GHL responda
-  lento y el limiter entre a backoff — y el modo de falla es silencioso: el refresco en
-  segundo plano se corta a la mitad *después* de que la respuesta ya salió, así que
-  nadie se entera. Con 300s el problema desaparece incluso mientras Yconia crece.
+  **Requiere plan Pro en Vercel — no es opcional.** La primera medición dio 33.9s para
+  Yconia; una segunda, media hora después, dio **60.3s** con los mismos datos. El
+  tiempo de sync varía casi al doble según cómo responda GHL, y 60.3s ya **rebasa** el
+  techo de 60s de Hobby. El modo de falla habría sido silencioso: el refresco en
+  segundo plano cortado a la mitad *después* de que la respuesta ya salió, sin que
+  nadie se entere. Con 300s hay margen de sobra incluso mientras Yconia crece.
 
   El tier **gratuito de Neon es suficiente**: lo único que compra el de paga es quitar el
   escalado a cero, ~0.5s en la primera carga del día, ruido frente a una mejora de 34s a
