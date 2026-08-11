@@ -17,6 +17,7 @@ pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, valida
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing
+pnpm verify:scopes       # lib/scopes.ts    — alcances: ids cookie-safe + proyectos existentes
 pnpm verify:auth         # lib/auth.ts      — session token; incl. the cookie-tamper rejection
 pnpm verify:limiter      # lib/ghl-limiter.ts — per-location isolation + retry backoff caps
 pnpm verify:context      # lib/ghl-context.ts — credential isolation across concurrent requests
@@ -29,8 +30,8 @@ npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green bu
 **No test framework, and not adopting one.** Instead, the modules where a silent bug
 would be a *cross-project data leak* — or would strand a sync — have assertion scripts
 under `scripts/verify-*.ts` (plain `node:assert/strict`, run via `tsx`). Run them after
-touching auth, the roster, the credential context, or the limiter. Everything else is
-verified by driving the real app.
+touching auth, the roster, los alcances, the credential context, or the limiter.
+Everything else is verified by driving the real app.
 
 Gotcha when writing these scripts: this package is CommonJS (no `"type": "module"`),
 so `tsx` compiles to CJS where **top-level `await` fails**. Wrap async work in a
@@ -49,10 +50,15 @@ of truth — ignore it.
 ## Environment Variables
 
 Required vars in `.env.local`:
-- `DASHBOARD_ACCESS_PASSWORD` — the one shared password for the internal team. Gates
-  the whole deployment; past the gate any user may open any project. If the value
-  contains `$`, single-quote it in `.env.local` so dotenv doesn't expand it — but
-  paste it **unquoted** in the Vercel UI, where quotes become part of the password.
+- `DASHBOARD_ACCESS_PASSWORD` — the password of the **`all`** access scope: every
+  project in the roster. Gates the whole deployment; past the gate a user may open any
+  project **their scope allows**. If the value contains `$`, single-quote it in
+  `.env.local` so dotenv doesn't expand it — but paste it **unquoted** in the Vercel
+  UI, where quotes become part of the password.
+- `DOMUS_ACCESS_PASSWORD` — the password of the **`domus`** scope. A session opened
+  with it is limited to Condesa Cimatario, Yconia and Plaza Bosques / Meseta (see
+  `lib/scopes.ts`). If it is not set, that scope cannot be opened by anyone and the
+  deployment behaves as if it did not exist. Same `$` caveat as above.
 - `DASHBOARD_CLIENTS` — JSON array of projects, one per GHL sub-account:
   `[{"id","name","locationId","ghlToken"}]`. Use `pnpm add-client` to extend it safely.
 - `DASHBOARD_AUTH_SECRET` — random string used to HMAC-sign both session cookies
@@ -136,17 +142,18 @@ Two cookies, two questions:
 
 | Cookie | Payload | Verified by | Answers |
 |---|---|---|---|
-| `dash_access` | `ok.<expiry>.<hmac>` | `middleware.ts` | may this person enter at all? |
-| `dash_project` | `<clientId>.<expiry>.<hmac>` | `requireClient()` (`lib/session.ts`) | which project are they viewing? |
+| `dash_access` | `<scopeId>.<expiry>.<hmac>` | `middleware.ts` | which projects may they open at all? |
+| `dash_project` | `<clientId>.<expiry>.<hmac>` | `requireClient()` (`lib/session.ts`) | which one are they viewing? |
 
 1. `lib/clients.ts` — the roster, parsed from `DASHBOARD_CLIENTS`. This is the
    **seam**: nothing downstream knows the roster comes from an env var, so swapping
    in a database later touches only this file. Project ids may not contain dots —
    they ride inside the dot-delimited cookie.
-2. Login (`app/api/auth/login/route.ts`) compares the submitted value against
-   `DASHBOARD_ACCESS_PASSWORD` with `safeEqual` and signs `dash_access`. It keeps a
-   per-IP rate limiter (5 attempts / 15 min) — soft, since Vercel resets it on cold
-   starts, but it matters more with one password than it did with per-client ones.
+2. Login (`app/api/auth/login/route.ts`) compares the submitted value against **every
+   configured scope's password** with `safeEqual` and signs the winning scope id into
+   `dash_access`. It keeps a per-IP rate limiter (5 attempts / 15 min) — soft, since
+   Vercel resets it on cold starts, but it matters more with shared passwords than it
+   did with per-client ones.
 3. `app/page.tsx` is a **server shell**: it reads `dash_project` and renders either
    `project-picker.tsx` or `dashboard-app.tsx`. The picker receives only
    `{ id, name }` per project — **never `ghlToken` or `locationId`**, which would
@@ -189,6 +196,36 @@ Two cookies, two questions:
    cooldown **by location id**, because GHL's budget is per location. Shared, one
    project's 429 would freeze every other project's sync.
 
+**Alcances (`lib/scopes.ts`).** Una contraseña no solo abre la puerta: decide **qué
+proyectos** puede abrir la sesión. Cada alcance declara su `passwordEnv` y su lista de
+`projectIds` (`null` = todo el roster). Hoy son dos: `all`
+(`DASHBOARD_ACCESS_PASSWORD`, todos) y `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
+Yconia y Plaza Bosques / Meseta). El id del alcance es el payload firmado de
+`dash_access`.
+
+`lib/scopes.ts` es puro y **no importa `lib/clients.ts`** — lo importa el middleware, y
+el roster arrastraría los tokens de GHL al bundle de Edge. Nombra proyectos por id, que
+no son secretos. La lista vive en código, no en un env var, para que cambiar quién ve
+qué quede versionado y revisable en el diff.
+
+**La barrera vive en `requireClient()`**, no en el picker ni en las páginas. Una cookie
+`dash_project` firmada durante una sesión más amplia sigue siendo criptográficamente
+válida para siempre; lo que impide que una sesión Domus abra Grand Center es
+`scopeAllows()` dentro de `requireClient()`. Filtrar el roster en `app/page.tsx` es
+cosmético — necesario para no mandar proyectos ajenos al navegador, pero no es lo que
+protege. **Nunca relajes esa comprobación "solo para una ruta".**
+
+`/domus` (`app/domus/page.tsx`) es un link compartible que abre el picker filtrado a
+los proyectos Domus. Es una puerta, no una segunda app: el dashboard sigue viviendo en
+`/`. Abrirla con la contraseña general no concede nada extra. Cuando el middleware
+rechaza una **página** adjunta `?next=<pathname>`, y `app/login/page.tsx` vuelve ahí
+solo si es una ruta interna (`/` sí, `//host` y `/\host` no).
+
+El login compara la contraseña contra **todos** los alcances configurados **sin cortar
+en el primer acierto**: un `break` haría que el tiempo de respuesta delatara cuál
+contraseña se acertó. También borra `dash_project`, para que entrar con otra contraseña
+en la misma máquina caiga en el picker y no en un 401.
+
 **Never obey an upstream `Retry-After` verbatim.** `serverErrorDelayMs()` and
 `rateLimitCooldownMs()` (`lib/ghl-limiter.ts`) cap it, because that header is a
 value someone else controls. GHL once answered `522 Retry-After: 120` and every
@@ -222,7 +259,7 @@ context.
 browser already holds), so they need no client context — only the middleware gate.
 
 Verification scripts (no test framework in this repo): `pnpm verify:clients`,
-`verify:auth`, `verify:limiter`.
+`verify:scopes`, `verify:auth`, `verify:limiter`.
 
 ### Loading & progress
 
