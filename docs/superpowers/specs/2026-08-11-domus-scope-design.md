@@ -8,18 +8,17 @@
 Hoy el deployment tiene una sola contraseña compartida (`DASHBOARD_ACCESS_PASSWORD`)
 y, pasada la puerta, cualquier usuario puede abrir cualquiera de los seis proyectos
 del roster. Queremos entregarle al equipo Domus un link propio — `/domus` — con su
-propia contraseña, cuya sesión quede **limitada** a cuatro proyectos:
+propia contraseña, cuya sesión quede **limitada** a tres proyectos:
 
-- `yconia`
-- `plaza-bosques`
-- `lezgo-suite`
-- `condesa`
+- `condesa` — Condesa Cimatario
+- `yconia` — Yconia
+- `plaza-bosques` — Plaza Bosques / Meseta
 
-Quedan fuera `grand-center` y `balvanera`.
+Quedan fuera `grand-center`, `balvanera` y `lezgo-suite`.
 
 Esto es una **barrera real**, no una vista de conveniencia: una sesión Domus no debe
-poder abrir Grand Center ni Balvanera aunque escriba la URL, forje la selección o
-conserve una cookie de una sesión anterior.
+poder abrir Grand Center, Balvanera ni Lezgo Suite aunque escriba la URL, forje la
+selección o conserve una cookie de una sesión anterior.
 
 ## Modelo: alcances (scopes)
 
@@ -49,7 +48,7 @@ export const SCOPES: readonly AccessScope[] = [
     id: "domus",
     label: "Proyectos Domus",
     passwordEnv: "DOMUS_ACCESS_PASSWORD",
-    projectIds: ["yconia", "plaza-bosques", "lezgo-suite", "condesa"],
+    projectIds: ["condesa", "yconia", "plaza-bosques"],
   },
 ]
 
@@ -118,8 +117,8 @@ caída" en vez de como la entrada inválida que es.
 ### 4. Los shells de servidor
 
 `app/page.tsx` filtra el roster por el alcance de la sesión antes de mapear a
-`{ id, name }`. Grand Center y Balvanera **nunca llegan al bundle del navegador** de
-una sesión Domus.
+`{ id, name }`. Grand Center, Balvanera y Lezgo Suite **nunca llegan al bundle del
+navegador** de una sesión Domus.
 
 Si la cookie `dash_project` apunta a un proyecto fuera del alcance, el shell la trata
 como no seleccionada y renderiza el picker.
@@ -169,18 +168,18 @@ Las rutas `/api/` siguen recibiendo `401 JSON`, sin `next`.
 
 `app/domus/page.tsx`, gemelo de `app/page.tsx`:
 
-- Si ya hay un proyecto seleccionado **y es uno de los cuatro de Domus** →
+- Si ya hay un proyecto seleccionado **y es uno de los tres de Domus** →
   `redirect("/")`. El dashboard sigue viviendo en `/`; `/domus` es la puerta, no una
   segunda aplicación. La condición es la pertenencia a Domus, no solo al alcance de
   la sesión: si un usuario `all` con Grand Center abierto entra a `/domus`, ver el
   picker de Domus es más útil que aterrizar en el dashboard de Grand Center.
-- Si no → picker con la **intersección** de los cuatro proyectos Domus con el alcance
-  de la sesión. Una sesión `all` que abra `/domus` ve los cuatro: es una vista
-  filtrada legítima, no un hueco. Una sesión `domus` ve los mismos cuatro.
+- Si no → picker con la **intersección** de los tres proyectos Domus con el alcance
+  de la sesión. Una sesión `all` que abra `/domus` ve los tres: es una vista
+  filtrada legítima, no un hueco. Una sesión `domus` ve los mismos tres.
 - Título: "Proyectos Domus".
 
 `ProjectPicker` recibe un prop `title` con default `"Proyectos Lezgo"`; también
-gobierna el `document.title`. Nada más cambia en el picker — los logos de los cuatro
+gobierna el `document.title`. Nada más cambia en el picker — los logos de los tres
 proyectos ya existen en `public/logos/` y ya están en el mapa `LOGOS`.
 
 La selección desde `/domus` sigue haciendo `window.location.href = "/"`: recarga
@@ -201,8 +200,8 @@ nunca `await` de nivel superior.
 - Los `id` de alcance son únicos.
 - Todo `projectId` de todo alcance existe en un roster de ejemplo: un alcance que
   apunte a un proyecto borrado del roster es un error de configuración silencioso.
-- `scopeAllows(domus, ...)` acepta los cuatro y **rechaza `grand-center` y
-  `balvanera`**.
+- `scopeAllows(domus, ...)` acepta los tres y **rechaza `grand-center`, `balvanera`
+  y `lezgo-suite`**.
 - `scopeAllows(all, ...)` acepta cualquier id (`projectIds: null`).
 - `getScope("no-existe") === null` y `getScope(null) === null`.
 
@@ -219,7 +218,7 @@ así que un build verde no prueba nada.
 **Manejar la app real** (lo único que prueba el flujo completo):
 
 1. Login con la contraseña general → seis proyectos, título "Proyectos Lezgo".
-2. Login con la contraseña Domus → cuatro proyectos, título "Proyectos Domus".
+2. Login con la contraseña Domus → tres proyectos, título "Proyectos Domus".
 3. Visitar `/domus` sin sesión → login → aterriza de vuelta en `/domus`.
 4. Desde una sesión Domus: `POST /api/project/select {"id":"grand-center"}` → `400`.
 5. Desde una sesión Domus con una cookie `dash_project` de Grand Center pegada a
