@@ -38,10 +38,18 @@ const INK_NAVY = "#151B28"
 // ease-out-quint: fast commit, soft landing. Product register keeps it brief.
 const EASE = "cubic-bezier(0.22,1,0.36,1)"
 
-export function ProjectPicker({ projects }: { projects: PickerProject[] }) {
+export function ProjectPicker({
+  projects,
+  // The scope's own label: a Domus session reads "Proyectos Domus" here and on /,
+  // so the filtered wall never looks like a broken copy of the full one.
+  title = "Proyectos Lezgo",
+}: {
+  projects: PickerProject[]
+  title?: string
+}) {
   const [pending, setPending] = useState<string | null>(null)
 
-  useEffect(() => { document.title = "Proyectos Lezgo" }, [])
+  useEffect(() => { document.title = title }, [title])
 
   // Type a number to open that project. This is a tool people re-enter many times
   // a day, and PRODUCT.md asks that switching projects cost about what switching a
@@ -90,7 +98,7 @@ export function ProjectPicker({ projects }: { projects: PickerProject[] }) {
             {/* A single amber tick, the smallest possible statement of the
                 "Amber Ledger" mark. It anchors the title without decorating it. */}
             <span aria-hidden className="h-5 w-1 shrink-0 rounded-full sm:h-6" style={{ backgroundColor: AMBER }} />
-            Proyectos Lezgo
+            {title}
           </h1>
           <button
             type="button"
