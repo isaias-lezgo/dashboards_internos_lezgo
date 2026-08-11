@@ -9,6 +9,8 @@ import {
   signToken,
 } from "@/lib/auth";
 import { getClientById } from "@/lib/clients";
+import { scopeAllows } from "@/lib/scopes";
+import { currentScope } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -21,12 +23,19 @@ export async function POST(req: Request) {
     id = "";
   }
 
-  // Validate against the roster BEFORE signing: signing an unknown id would mint a
-  // cookie that passes verifyToken but resolves to null on every request, which
-  // reads as "logged out" rather than as the bad input it is.
+  const scope = await currentScope();
+  if (!scope) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // Validate against the roster AND the session's scope BEFORE signing: signing an
+  // id the session may not open would mint a cookie that passes verifyToken but that
+  // requireClient() refuses on every request, which reads as "logged out" rather
+  // than as the bad input it is.
   let known = false;
   try {
-    known = getClientById(id) !== null;
+    const client = getClientById(id);
+    known = client !== null && scopeAllows(scope, client.id);
   } catch (err) {
     console.error("[project] Could not load project roster:", err);
     return NextResponse.json({ error: "server_misconfigured" }, { status: 500 });
