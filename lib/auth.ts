@@ -3,16 +3,16 @@
 // imported from middleware (Edge runtime) as well as Node route handlers.
 // No Next.js imports here — keep it pure and runtime-agnostic.
 
-// Two cookies, two questions. dash_access answers "may this person enter at all?"
-// and is the only one Edge middleware checks. dash_project answers "which project
-// are they viewing?" and is resolved by requireClient() (lib/session.ts), which
-// needs the roster and therefore must stay out of the Edge bundle.
+// Two cookies, two questions. dash_access answers "which projects may this person
+// open at all?" — its payload is an ACCESS SCOPE id (see lib/scopes.ts) — and it is
+// the only one Edge middleware checks. dash_project answers "which project are they
+// viewing?" and is resolved by requireClient() (lib/session.ts), which needs the
+// roster and therefore must stay out of the Edge bundle.
+//
+// Neither payload carries identity or PII: one names a set of projects, the other
+// names one project.
 export const ACCESS_COOKIE = "dash_access";
 export const PROJECT_COOKIE = "dash_project";
-
-// The signed payload of dash_access. It carries no identity — past the gate every
-// internal user is equivalent — so a fixed sentinel is all that is needed.
-export const ACCESS_PAYLOAD = "ok";
 
 // Shared by every Set-Cookie in the app, so one of them can't drift insecure.
 export const COOKIE_OPTIONS = {
@@ -76,8 +76,8 @@ export async function signToken(clientId: string, expiryMs: number): Promise<str
 }
 
 // Returns the signed payload on success, null on any failure (missing, malformed,
-// expired, or bad signature). Callers decide what the payload means: the literal
-// ACCESS_PAYLOAD for dash_access, a project id for dash_project.
+// expired, or bad signature). Callers decide what the payload means: a scope id for
+// dash_access, a project id for dash_project.
 export async function verifyToken(value: string | undefined): Promise<string | null> {
   if (!value) return null;
   const parts = value.split(".");
