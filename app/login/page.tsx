@@ -28,7 +28,7 @@ export default function LoginPage() {
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        router.replace("/");
+        router.replace(safeNext());
         router.refresh();
         return;
       }
@@ -72,4 +72,18 @@ export default function LoginPage() {
       </Card>
     </div>
   );
+}
+
+// Reads ?next= from the current URL. Read from window rather than useSearchParams so
+// this page needs no Suspense boundary — useSearchParams would make the build demand
+// one.
+//
+// Only same-origin paths are honoured: "//evil.com" is protocol-relative and "/\evil"
+// is normalised the same way by some browsers, so both would leave the site. Anything
+// else falls back to "/".
+function safeNext(): string {
+  if (typeof window === "undefined") return "/";
+  const raw = new URLSearchParams(window.location.search).get("next");
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+  return raw;
 }

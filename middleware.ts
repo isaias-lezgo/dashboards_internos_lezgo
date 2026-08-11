@@ -26,9 +26,13 @@ function denied(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const requested = req.nextUrl.pathname;
   const url = req.nextUrl.clone();
   url.pathname = "/login";
-  url.search = "";
+  // Carry the requested page so the login can return there — this is what makes a
+  // shared /domus link survive the gate. Only the pathname: the original search is
+  // dropped, since it is attacker-controllable and nothing downstream needs it.
+  url.search = requested && requested !== "/" ? `?next=${encodeURIComponent(requested)}` : "";
   return NextResponse.redirect(url);
 }
 
