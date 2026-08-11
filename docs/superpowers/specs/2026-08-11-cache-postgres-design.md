@@ -182,10 +182,18 @@ El stream NDJSON no cambia de forma: en una lectura caliente llega un solo frame
   inyecta sola; en `.env.local` va a mano. Server-side only, como todo lo demás.
 - Dependencia nueva: **`@neondatabase/serverless`**, instalada con `pnpm add`
   (nunca `npm install` — desincroniza `pnpm-lock.yaml` y rompe el build de Vercel).
-- **`export const maxDuration`** en la ruta del dashboard. El sync de Yconia tarda 34s
-  y el tope por defecto es mucho menor. En plan Pro se puede subir a 300s; en Hobby el
-  techo es 60s, que deja poco margen y obligaría a partir el sync por dataset. **Hay
-  que confirmar el plan de Vercel antes de implementar.**
+- **`export const maxDuration = 300`** en la ruta del dashboard. El sync de Yconia tarda
+  34s y el tope por defecto es mucho menor.
+
+  **Esto asume plan Pro en Vercel, que el usuario va a contratar.** Los 34s técnicamente
+  caben en el techo de 60s de Hobby, pero sin margen para un día en que GHL responda
+  lento y el limiter entre a backoff — y el modo de falla es silencioso: el refresco en
+  segundo plano se corta a la mitad *después* de que la respuesta ya salió, así que
+  nadie se entera. Con 300s el problema desaparece incluso mientras Yconia crece.
+
+  El tier **gratuito de Neon es suficiente**: lo único que compra el de paga es quitar el
+  escalado a cero, ~0.5s en la primera carga del día, ruido frente a una mejora de 34s a
+  2s.
 
 ## Verificación
 
