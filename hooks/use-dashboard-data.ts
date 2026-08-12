@@ -1,16 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import type {
-  Contact,
-  Opportunity,
-  Call,
-  Task,
-  Pipeline,
-  Pauta,
-  Appointment,
-  CustomFieldDef,
-} from "@/lib/types";
+import type { DashboardPayload } from "@/lib/types";
 import { fetchStream } from "./fetch-stream";
 
 export type StepKey =
@@ -37,27 +28,10 @@ const INITIAL_STEPS: StepMap = {
   tasks: { status: "pending" },
 };
 
-export interface DashboardData {
-  contacts: Contact[];
-  opportunities: Opportunity[];
-  calls: Call[];
-  tasks: Task[];
-  appointments: Appointment[];
-  pipelines: Pipeline[];
-  members: string[];
-  tags: string[];
-  campaigns: string[];
-  sources: string[];
-  pautas: Pauta[];
-  customFieldDefs: CustomFieldDef[];
-  locationId: string;
-  locationName: string;
-  meta: {
-    totalContacts: number;
-    totalOpportunities: number;
-    fetchedAt: string;
-  };
-}
+// The payload the sync produces, the cache stores and the browser receives — one
+// definition in lib/types.ts so the three cannot drift apart. Kept as an alias
+// because several components import DashboardData by name.
+export type DashboardData = DashboardPayload;
 
 export function useDashboardData(params?: {
   startDate?: string;
@@ -74,7 +48,7 @@ export function useDashboardData(params?: {
   const startDate = params?.startDate;
   const endDate = params?.endDate;
 
-  const load = useCallback(async (sd?: string, ed?: string) => {
+  const load = useCallback(async (sd?: string, ed?: string, fresh?: boolean) => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -82,6 +56,9 @@ export function useDashboardData(params?: {
     const searchParams = new URLSearchParams();
     if (sd) searchParams.set("startDate", sd);
     if (ed) searchParams.set("endDate", ed);
+    // The cache serves everyone by default; this is the escape hatch for someone
+    // who just changed something in the CRM and wants to see it now.
+    if (fresh) searchParams.set("fresh", "1");
     const qs = searchParams.toString();
     const url = `/api/dashboard${qs ? `?${qs}` : ""}`;
 
@@ -131,9 +108,15 @@ export function useDashboardData(params?: {
     };
   }, [load, startDate, endDate]);
 
-  const refresh = useCallback(() => {
-    load(startDate, endDate);
-  }, [load, startDate, endDate]);
+  // Defaults to fresh: the "Actualizar" button exists precisely to bypass the
+  // cache. A refresh that returned the same thing already on screen would feel
+  // broken.
+  const refresh = useCallback(
+    (opts?: { fresh?: boolean }) => {
+      load(startDate, endDate, opts?.fresh ?? true);
+    },
+    [load, startDate, endDate],
+  );
 
   return {
     data,

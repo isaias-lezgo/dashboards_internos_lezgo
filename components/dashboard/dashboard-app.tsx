@@ -59,6 +59,21 @@ const TAB_TITLES: Record<DashboardTab, string> = {
   conversations: "Asistente IA - Lezgo Suite CRM",
 }
 
+// With a cache, the age of the data matters more than the clock time it was taken:
+// "hace 40 minutos" tells you whether to trust it, "14:32" makes you do the
+// subtraction yourself. Anything under a minute reads as current.
+function relativeAge(fetchedAt: string, _tick: number): string {
+  const mins = Math.floor((Date.now() - new Date(fetchedAt).getTime()) / 60000)
+  if (mins < 1) return "hace un momento"
+  if (mins === 1) return "hace 1 minuto"
+  if (mins < 60) return `hace ${mins} minutos`
+  const hrs = Math.floor(mins / 60)
+  if (hrs === 1) return "hace 1 hora"
+  if (hrs < 24) return `hace ${hrs} horas`
+  const days = Math.floor(hrs / 24)
+  return days === 1 ? "hace 1 día" : `hace ${days} días`
+}
+
 export function DashboardApp() {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -69,6 +84,27 @@ export function DashboardApp() {
   useEffect(() => { document.title = TAB_TITLES[activeTab] }, [activeTab])
 
   const { data, isLoading, isError, progress, locationName, steps, refresh } = useDashboardData({})
+
+  // The "Actualizado hace X" label is relative, so it has to re-render on its own;
+  // without this it would still read "hace un momento" an hour later.
+  const [nowTick, setNowTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // The loading screen is for the cold path, which takes tens of seconds. On a warm
+  // cache the response lands in about a second, and a screen that flashes in and out
+  // reads as a glitch. Delay it: if the data beats the timer, it never shows.
+  const [showLoading, setShowLoading] = useState(false)
+  useEffect(() => {
+    if (!isLoading) {
+      setShowLoading(false)
+      return
+    }
+    const id = setTimeout(() => setShowLoading(true), 300)
+    return () => clearTimeout(id)
+  }, [isLoading])
   const { messages } = useConversationsData()
 
   const [dateFilter, setDateFilter] = useState<DateFilter>({ preset: "all" })
@@ -119,7 +155,10 @@ export function DashboardApp() {
   const availableMembers = data?.members ?? []
   const availableTags = data?.tags ?? []
 
-  const isInitialLoad = isLoading && !data
+  // showLoading, not isLoading: a warm cache read lands in about a second, and a
+  // loading screen that flashes in and out reads as a glitch. On the cold path the
+  // 300 ms delay is invisible against a sync of tens of seconds.
+  const isInitialLoad = showLoading && !data
 
   return (
     <>
@@ -199,7 +238,7 @@ export function DashboardApp() {
               {isLoading
                 ? (progress || "Sincronizando…")
                 : data?.meta?.fetchedAt
-                  ? `Actualizado ${new Date(data.meta.fetchedAt).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`
+                  ? `Actualizado ${relativeAge(data.meta.fetchedAt, nowTick)}`
                   : ""}
             </span>
             
