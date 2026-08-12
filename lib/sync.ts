@@ -279,7 +279,7 @@ async function fetchAllPautas(onProgress?: (count: number) => void): Promise<Pau
   }
 }
 
-// Fetch + transform appointments across all calendars over a ±90-day window.
+// Fetch + transform appointments across all calendars, all of history.
 // /calendars/events requires one of (calendarId, userId, groupId); empirically
 // GHL doesn't index it on assignedUserId, so userId-based queries return empty.
 // Fan out across calendars instead and use each event's assignedUserId for asesor
@@ -297,12 +297,20 @@ async function fetchAppointments(userMap: Map<string, string>): Promise<Appointm
     if (calendarIds.length === 0) return appointments;
 
     // /calendars/events expects startTime/endTime as epoch ms strings; ISO
-    // strings silently return empty. Window spans 90 days back AND forward:
-    // appointments are inherently future-facing, so an end of `now` would
-    // silently drop every upcoming appointment.
-    const now = Date.now();
-    const apptStartTime = String(now - 90 * 86_400_000);
-    const apptEndTime = String(now + 90 * 86_400_000);
+    // strings silently return empty. Both are REQUIRED, so "todas las citas" has
+    // to be expressed as a window wider than any real data rather than as no
+    // window at all. The bounds below are deliberately absurd: 2010 predates
+    // GoHighLevel itself, and no one books ten years out.
+    //
+    // This used to be ±90 days, which hid between half and three quarters of
+    // every account's appointments (Lezgo Suite showed 115 of 509; Condesa 161
+    // of 329). Measured across the whole roster, totals stop growing past ±1
+    // year — so this costs a second or two of sync, not more.
+    //
+    // Keep the end bound in the future: appointments are inherently
+    // future-facing, and an end of `now` would drop every upcoming one.
+    const apptStartTime = String(Date.UTC(2010, 0, 1));
+    const apptEndTime = String(Date.now() + 10 * 365 * 86_400_000);
 
     // Fan out one request per calendar; ghlFetch's semaphore bounds in-flight
     // count, so we no longer need a hand-rolled worker-pool cursor here.
