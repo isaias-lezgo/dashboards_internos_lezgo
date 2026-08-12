@@ -292,7 +292,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: "list_appointments",
-    description: "List appointments (last 90 days). Returns compact rows.",
+    description: "List appointments (full history, past and upcoming). Returns compact rows.",
     input_schema: {
       type: "object",
       properties: {
@@ -1313,7 +1313,7 @@ function listFields(input: ToolInput, data: ChatDataset) {
     appointments: {
       fields: ["id", "contactId", "assignedTo", "title", "startTime", "endTime", "status", "notes"],
       count: data.appointments.length,
-      note: "Last 90 days only.",
+      note: "Full history, past and upcoming.",
     },
     messages: {
       fields: ["id", "contactId", "conversationId", "assignedTo", "direction", "source", "content", "createdAt"],

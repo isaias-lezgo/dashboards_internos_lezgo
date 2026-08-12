@@ -9,17 +9,20 @@
     "lint": "eslint .",
     "verify:clients": "tsx scripts/verify-clients.ts",
     "verify:scopes": "tsx scripts/verify-scopes.ts",
+    "verify:sync-store": "tsx --env-file-if-exists=.env.local scripts/verify-sync-store.ts",
     "verify:auth": "tsx scripts/verify-auth.ts",
     "verify:limiter": "tsx scripts/verify-limiter.ts",
     "verify:context": "tsx scripts/verify-context.ts",
     "verify:attachments": "tsx scripts/verify-attachments.ts",
     "verify:cf-merge": "tsx scripts/verify-custom-field-merge.ts",
     "verify:write-tools": "tsx scripts/verify-write-tools.ts",
-    "add-client": "tsx scripts/add-client.ts"
+    "add-client": "tsx scripts/add-client.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "@hookform/resolvers": "^3.9.1",
+    "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",

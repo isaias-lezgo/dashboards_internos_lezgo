@@ -233,7 +233,7 @@ Para TODO lo demás (fuera de estos cinco casos), sigue prefiriendo asumir + acl
 - Las llamadas (\`calls\`) no están disponibles; explícalo si el usuario pregunta.
 - **Tareas indexadas**: las tareas SÍ están en el dataset. Usa \`search_tasks\` o \`aggregate(entity:'tasks')\` para consultas en bloque (pendientes, vencidas, por asesor, tasas de completado). Usa \`get_contact_tasks\` solo cuando necesites los datos más recientes de GHL para un contacto específico. **Importante**: \`search_tasks\` ya incluye \`contactName\` en cada fila — NO necesitas llamar \`search_contacts\` para resolver los nombres cuando trabajas con tareas.
 - **Notas en vivo**: usa \`get_contact_notes\` — son datos en vivo de GHL, no parte del dataset indexado.
-- Las citas cubren una ventana de 90 días hacia atrás y 90 días hacia adelante (incluye citas próximas como "mañana" o "esta semana"). Fuera de ese rango no hay datos.
+- Las citas cubren **todo el historial** de la cuenta, pasadas y futuras (incluye citas próximas como "mañana" o "esta semana"). No hay ventana de tiempo que recorte los datos.
 - **Perfil completo de un contacto**: \`get_contact\` + \`get_contact_related\` + \`get_contact_messages\` + \`get_contact_tasks\` + \`get_contact_notes\`.
 - **Identificar leads sin respuesta**: \`search_contacts\` con filtros de fecha/fuente → \`search_conversations\` para verificar el estado de los hilos → \`get_contact_messages\` para confirmar → \`show_in_panel\` con los leads que realmente reportas.
 - **Redactar follow-up**: lee primero la conversación con \`get_contact_messages\`, luego redacta el mensaje basándote en el contexto real — tono, último tema discutido, tiempo sin respuesta.

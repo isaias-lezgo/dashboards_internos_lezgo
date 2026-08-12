@@ -14,10 +14,12 @@ pnpm lint       # Run ESLint
 # Multi-client
 pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, validates, prints the blob)
                 #   Non-interactive: pnpm add-client --name "X" --location <id> --token pit-…
+pnpm db:migrate # Crea/verifica la tabla project_sync en Neon. Idempotente.
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing
 pnpm verify:scopes       # lib/scopes.ts    — alcances: ids cookie-safe + proyectos existentes
+pnpm verify:sync-store   # lib/sync-store.ts — roundtrip gzip + aislamiento por proyecto + candado
 pnpm verify:auth         # lib/auth.ts      — session token; incl. the cookie-tamper rejection
 pnpm verify:limiter      # lib/ghl-limiter.ts — per-location isolation + retry backoff caps
 pnpm verify:context      # lib/ghl-context.ts — credential isolation across concurrent requests
@@ -32,6 +34,12 @@ would be a *cross-project data leak* — or would strand a sync — have asserti
 under `scripts/verify-*.ts` (plain `node:assert/strict`, run via `tsx`). Run them after
 touching auth, the roster, los alcances, the credential context, or the limiter.
 Everything else is verified by driving the real app.
+
+`verify:sync-store` es el único que toca una base real: corre sus aserciones puras
+siempre, y el roundtrip contra Postgres solo si hay `DATABASE_URL`. Usa ids sintéticos
+(`__verify_*`, imposibles en el roster porque `ID_RE` prohíbe guiones bajos) y los borra
+al terminar. Su script de npm carga `--env-file-if-exists=.env.local`, así que corre
+igual en un entorno sin ese archivo.
 
 Gotcha when writing these scripts: this package is CommonJS (no `"type": "module"`),
 so `tsx` compiles to CJS where **top-level `await` fails**. Wrap async work in a
@@ -63,6 +71,12 @@ Required vars in `.env.local`:
   `[{"id","name","locationId","ghlToken"}]`. Use `pnpm add-client` to extend it safely.
 - `DASHBOARD_AUTH_SECRET` — random string used to HMAC-sign both session cookies
   (`openssl rand -hex 32`). Rotating it invalidates every live session.
+- `DATABASE_URL` — Neon (Postgres serverless), el caché de sincronización. La
+  integración de Vercel la inyecta sola. **Región `us-east-1`: las funciones de Vercel
+  deben estar en `iad1`**, o cada lectura del payload paga el viaje entre continentes
+  y se come lo que el caché gana.
+- `DATABASE_URL_UNPOOLED` — la misma base sin pgbouncer. Solo la usa `pnpm db:migrate`:
+  el pooler en modo transaction estorba al DDL.
 - `ANTHROPIC_API_KEY` — used by `app/api/chat` (assistant), `analyze-report` (PDF analyses)
   and `analyze-contact`
 - `GHL_API_TOKEN` / `GHL_LOCATION_ID` — **not read by the app.** Kept only so the dev
@@ -124,6 +138,46 @@ already holds and need only the middleware gate:
 Client-side data hooks mirror this: `use-dashboard-data.ts` (main sync),
 `use-conversations-data.ts` (messages), `use-agent-loop.ts` (the AI agent loop), all
 built on `fetch-stream.ts` for the NDJSON routes.
+
+### El caché de sincronización
+
+Un sync completo tarda entre 34 y 60 segundos (Yconia, medido dos veces el mismo día
+con los mismos datos — GHL varía casi al doble). Por eso `/api/dashboard` **no llama a
+GHL en el camino normal**: lee `project_sync`, una fila por proyecto con el payload en
+gzip (27.7 MB → 2.49 MB, 11x) y su `synced_at`.
+
+```
+GET /api/dashboard
+    ↓  requireClient()   → proyecto + alcance
+    ↓  readSync(client)  → fila de project_sync
+    ├─ hay fila → manda el payload YA; si pasó de 15 min, after(() => refrescar)
+    └─ no hay   → sync en vivo con pantalla de carga, y lo guarda
+```
+
+- `lib/db.ts` es **la costura**: nada aguas abajo sabe que la base es Neon.
+- `lib/sync.ts` tiene la orquestación, extraída del route handler para que la ruta y el
+  refresco en segundo plano llamen al mismo código. Dos copias se desincronizarían.
+- **El caché es desechable.** Se sobrescribe cada vez y guarda solo el presente, nunca
+  historia: si se borra la tabla, se rellena sola desde GHL. Esa propiedad es lo que lo
+  mantiene en una tabla en vez de un esquema, y lo que evita acumular datos personales
+  históricos.
+- **La base no es una dependencia.** Todo fallo de Postgres se registra y cae al sync en
+  vivo. Introducir el caché no debe crear una forma nueva de que el dashboard no
+  cargue — está probado apuntando `DATABASE_URL` a un host inválido y confirmando que
+  la app sigue funcionando.
+- **`maxDuration = 300` requiere plan Pro.** El techo de 60s de Hobby ya fue rebasado
+  por un sync real de 60.3s, y un refresco en segundo plano cortado falla en silencio
+  porque corre *después* de que la respuesta salió.
+- El candado (`sync_started_at`) hace que dos personas abriendo el mismo proyecto
+  vencido produzcan **una** sincronización. Se auto-sana a los 10 minutos, para que una
+  función muerta a medio sync no congele el proyecto.
+- `writeSync` limpia el candado por sí solo, así que solo el camino de error llama a
+  `releaseSync` — y ese **no toca el payload**: un refresco fallido debe dejar el
+  último caché bueno en su lugar.
+- El header muestra **"Actualizado hace X"** en tiempo relativo, no la hora del reloj:
+  un caché sin antigüedad visible miente por omisión. El botón **Actualizar** manda
+  `?fresh=1`, que se salta el caché.
+- `/api/dashboard-messages` **no está cacheado** — se puede agregar igual después.
 
 ### Internal projects & the access gate
 
