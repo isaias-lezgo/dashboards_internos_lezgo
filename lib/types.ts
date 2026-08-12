@@ -218,3 +218,29 @@ export interface CustomFieldDef {
   fieldKey?: string
   picklistOptions?: string[]
 }
+
+// The whole dashboard dataset: what the sync produces, what the cache stores, and
+// what the browser receives. One definition so the three cannot drift apart.
+export interface DashboardPayload {
+  locationName: string
+  contacts: Contact[]
+  opportunities: Opportunity[]
+  calls: Call[]
+  tasks: Task[]
+  appointments: Appointment[]
+  pipelines: Pipeline[]
+  members: string[]
+  tags: string[]
+  campaigns: string[]
+  sources: string[]
+  pautas: Pauta[]
+  customFieldDefs: CustomFieldDef[]
+  locationId: string
+  meta: {
+    totalContacts: number
+    totalOpportunities: number
+    // When the data was fetched FROM GHL — not when it was read from the cache.
+    // This is the timestamp the header renders as "actualizado hace X".
+    fetchedAt: string
+  }
+}

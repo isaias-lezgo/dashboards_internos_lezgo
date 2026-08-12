@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "verify:clients": "tsx scripts/verify-clients.ts",
     "verify:scopes": "tsx scripts/verify-scopes.ts",
+    "verify:sync-store": "tsx --env-file-if-exists=.env.local scripts/verify-sync-store.ts",
     "verify:auth": "tsx scripts/verify-auth.ts",
     "verify:limiter": "tsx scripts/verify-limiter.ts",
     "verify:context": "tsx scripts/verify-context.ts",
