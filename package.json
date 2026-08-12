@@ -15,11 +15,13 @@
     "verify:attachments": "tsx scripts/verify-attachments.ts",
     "verify:cf-merge": "tsx scripts/verify-custom-field-merge.ts",
     "verify:write-tools": "tsx scripts/verify-write-tools.ts",
-    "add-client": "tsx scripts/add-client.ts"
+    "add-client": "tsx scripts/add-client.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "@hookform/resolvers": "^3.9.1",
+    "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",
