@@ -9,9 +9,13 @@ import type { DashboardPayload } from "@/lib/types";
 export const runtime = "nodejs";
 
 // A cold sync took 33.9s on 2026-08-11 and 60.3s half an hour later, on the same
-// data — GHL's response time swings by nearly 2x. 300s (Vercel Pro) leaves room
-// for that plus growth. Do NOT lower this to the Hobby ceiling of 60s: a refresh
-// killed mid-flight fails SILENTLY, because it runs after the response was sent.
+// data — GHL's response time swings by nearly 2x. 300s leaves room for that plus
+// growth.
+//
+// This needs Fluid Compute enabled (Settings → Functions), which is what raises the
+// cap to 300s — the plan itself does not: Hobby with Fluid allows it. Without Fluid
+// the cap is 60s, which a real 60.3s sync already exceeded, and a refresh killed
+// mid-flight fails SILENTLY because it runs after the response was sent.
 export const maxDuration = 300;
 
 function enc(obj: unknown): string {

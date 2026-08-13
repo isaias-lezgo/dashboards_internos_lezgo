@@ -165,9 +165,15 @@ GET /api/dashboard
   vivo. Introducir el caché no debe crear una forma nueva de que el dashboard no
   cargue — está probado apuntando `DATABASE_URL` a un host inválido y confirmando que
   la app sigue funcionando.
-- **`maxDuration = 300` requiere plan Pro.** El techo de 60s de Hobby ya fue rebasado
-  por un sync real de 60.3s, y un refresco en segundo plano cortado falla en silencio
-  porque corre *después* de que la respuesta salió.
+- **`maxDuration = 300` depende de Fluid Compute, no del plan.** Con Fluid activado
+  (Settings → Functions) Hobby permite 300s; sin él el techo es 60s, que un sync real
+  de 60.3s ya rebasó. Verificado el 2026-08-12: el proyecto corre en **Hobby con Fluid
+  activado**, así que los 300s son reales. Si alguien apaga Fluid, el síntoma es sutil
+  — un proyecto cuyo "Actualizado hace X" deja de avanzar, porque el refresco en
+  segundo plano se corta en silencio al correr *después* de que la respuesta salió.
+- **La región de las funciones debe coincidir con la de Neon.** Ambas en `iad1` /
+  `us-east-1`. Medido el 2026-08-12 desde producción: Yconia 2.4s, Condesa 1.1s,
+  Lezgo Suite 0.8s, contra 34-60s sin caché.
 - El candado (`sync_started_at`) hace que dos personas abriendo el mismo proyecto
   vencido produzcan **una** sincronización. Se auto-sana a los 10 minutos, para que una
   función muerta a medio sync no congele el proyecto.

@@ -56,10 +56,19 @@ Probado con el payload real de Yconia contra la instancia de Neon ya creada
 | Arranque en frío (escala a cero) | 430 ms |
 
 La lectura de ~1.5s se midió desde una laptop en México contra `us-east-1`; una
-función de Vercel en la misma región debería bajarla a unas décimas. **Hay que medirla
-de nuevo ya desplegada en vez de asumirlo** — si resultara ser el costo dominante, la
-salida es mover el payload a almacenamiento de objetos dejando Postgres para el
-historial futuro.
+función de Vercel en la misma región debería bajarla a unas décimas.
+
+**Medido ya en producción (2026-08-12), con las funciones en `iad1` junto a la base:**
+
+| Proyecto | Sin caché | Con caché |
+|---|---:|---:|
+| Yconia | 39-60 s | **2.4 s** |
+| Condesa Cimatario | ~37 s | **1.1 s** |
+| Lezgo Suite | ~33 s | **0.8 s** |
+
+La estimación de ~2s era correcta; los 7s que se midieron en desarrollo eran el enlace
+Querétaro→Virginia, no la base. No hace falta mover el payload a almacenamiento de
+objetos.
 
 **La región importa:** la base quedó en `us-east-1`, así que las funciones de Vercel
 tienen que estar en `iad1`. Si quedan en continentes distintos, cada lectura paga el
@@ -210,12 +219,16 @@ El stream NDJSON no cambia de forma: en una lectura caliente llega un solo frame
 - **`export const maxDuration = 300`** en la ruta del dashboard. El sync de Yconia tarda
   34s y el tope por defecto es mucho menor.
 
-  **Requiere plan Pro en Vercel — no es opcional.** La primera medición dio 33.9s para
-  Yconia; una segunda, media hora después, dio **60.3s** con los mismos datos. El
-  tiempo de sync varía casi al doble según cómo responda GHL, y 60.3s ya **rebasa** el
-  techo de 60s de Hobby. El modo de falla habría sido silencioso: el refresco en
-  segundo plano cortado a la mitad *después* de que la respuesta ya salió, sin que
-  nadie se entere. Con 300s hay margen de sobra incluso mientras Yconia crece.
+  **Corrección posterior (2026-08-12):** este spec afirmaba que hacía falta plan Pro.
+  **Es falso, y la recomendación se basó en un límite viejo.** Lo que sube el techo a
+  300s es **Fluid Compute** (Settings → Functions), no el plan: Hobby con Fluid lo
+  permite. El proyecto ya corría así, y quedó verificado en producción.
+
+  Lo que sí sigue siendo cierto es por qué se necesitan los 300s: la primera medición
+  dio 33.9s para Yconia; una segunda, media hora después, dio **60.3s** con los mismos
+  datos. El tiempo de sync varía casi al doble según cómo responda GHL, y 60.3s ya
+  rebasa el techo de 60s que aplica **sin Fluid**. El modo de falla es silencioso: el
+  refresco en segundo plano cortado a la mitad *después* de que la respuesta ya salió.
 
   El tier **gratuito de Neon es suficiente**: lo único que compra el de paga es quitar el
   escalado a cero, ~0.5s en la primera carga del día, ruido frente a una mejora de 34s a
