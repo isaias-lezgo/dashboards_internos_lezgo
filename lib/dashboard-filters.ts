@@ -169,15 +169,33 @@ export function buildFirstPautaTipoByContact(pautas: Pauta[]): Map<string, strin
 export interface FilterContext {
   contactById: Map<string, Contact>
   firstPautaTipoByContact: Map<string, string>
+  /**
+   * contactId → sus oportunidades del historial COMPLETO. Solo lo consulta
+   * `outOfWindowContactPasses`, para juzgar a un contacto cuyos registros caen en
+   * la ventana pero cuyas oportunidades no.
+   */
+  opportunitiesByContact: Map<string, Opportunity[]>
 }
 
 export function buildFilterContext(
   allContacts: Contact[],
   allPautas: Pauta[],
+  allOpportunities: Opportunity[],
 ): FilterContext {
   const contactById = new Map<string, Contact>()
   for (const c of allContacts) contactById.set(c.id, c)
-  return { contactById, firstPautaTipoByContact: buildFirstPautaTipoByContact(allPautas) }
+  const opportunitiesByContact = new Map<string, Opportunity[]>()
+  for (const o of allOpportunities) {
+    if (!o.contactId) continue
+    const arr = opportunitiesByContact.get(o.contactId)
+    if (arr) arr.push(o)
+    else opportunitiesByContact.set(o.contactId, [o])
+  }
+  return {
+    contactById,
+    firstPautaTipoByContact: buildFirstPautaTipoByContact(allPautas),
+    opportunitiesByContact,
+  }
 }
 
 // ── Predicados ─────────────────────────────────────────────────────────────
@@ -232,6 +250,36 @@ export function orphanContactPasses(
   if (f.origins.length && !anySelected(originsOfContact(c), f.origins)) return false
   if (f.pautaTypes.length && !f.pautaTypes.includes(pautaTipoOfContact(c.id, ctx))) return false
   return true
+}
+
+/**
+ * Lectura de los filtros sobre un contacto que NO cae en la ventana de fechas pero
+ * que SÍ tiene registros dentro de ella — una pauta, una cita, una tarea, un
+ * mensaje.
+ *
+ * Pasa de verdad, y no como caso raro: el escenario de Make de Balvanera creó el 3
+ * de agosto ocho registros de pauta para contactos entrados en julio. Sus pautas
+ * caen en la ventana; su contacto y sus oportunidades, no. Sin esta rama esas ocho
+ * desaparecían del panel en cuanto se tocaba CUALQUIER filtro — incluso uno que
+ * seleccionara todas las opciones de su menú — y la gráfica "Pautas por canal"
+ * caía de 21 a 13 formularios sin que nada explicara la diferencia.
+ *
+ * Se juzga por sus oportunidades del historial completo, porque la ventana no
+ * contiene ninguna: aceptar una oportunidad de fuera de la ventana como fuente del
+ * status es el precio de no borrar el registro. Un contacto que nunca tuvo
+ * oportunidad cae en la lectura a nivel contacto, igual que un huérfano.
+ */
+export function outOfWindowContactPasses(
+  contactId: string,
+  f: DashboardFilters,
+  ctx: FilterContext,
+): boolean {
+  const opps = ctx.opportunitiesByContact.get(contactId)
+  if (opps?.length) return opps.some((o) => opportunityPasses(o, f, ctx))
+  const c = ctx.contactById.get(contactId)
+  // Sin contacto en el roster no hay nada contra qué evaluar el filtro; se cae,
+  // igual que un registro sin contactId.
+  return c ? orphanContactPasses(c, f, ctx) : false
 }
 
 // ── La cascada ─────────────────────────────────────────────────────────────
@@ -292,6 +340,27 @@ export function applyDashboardFilters(
   // siendo parte de la historia que el panel está contando.
   const allowedContactIds = new Set(ownersOfSurvivors)
   for (const c of contacts) allowedContactIds.add(c.id)
+
+  // Tercera fuente: un registro puede caer en la ventana aunque su contacto y sus
+  // oportunidades sean anteriores. Ese contacto no está en `data.contacts` (ya
+  // recortado por su propio createdAt) ni entre los dueños de las supervivientes,
+  // así que las dos fuentes de arriba lo pierden y su registro se cae en
+  // byContact() aunque cumpla el criterio. Se evalúa aparte.
+  //
+  // No se toca `contacts`: su definición sigue siendo la ventana de fechas, y
+  // moverla desplazaría "Leads sin oportunidad".
+  const judged = new Set<string>()
+  for (const items of [data.pautas, data.appointments, data.tasks, data.messages]) {
+    for (const x of items as { contactId?: string }[]) {
+      const id = x.contactId
+      if (!id || allowedContactIds.has(id) || judged.has(id)) continue
+      // Con oportunidades EN la ventana, ellas ya decidieron y no sobrevivieron;
+      // readmitirlo por la puerta de atrás contradiría el filtro.
+      if (hasOppInWindow.has(id)) continue
+      judged.add(id)
+      if (outOfWindowContactPasses(id, f, ctx)) allowedContactIds.add(id)
+    }
+  }
 
   const byContact = <T extends { contactId?: string }>(items: T[]): T[] =>
     // Un registro sin contactId no es atribuible a nadie, así que ningún filtro

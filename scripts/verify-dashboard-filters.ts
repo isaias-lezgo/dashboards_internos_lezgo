@@ -129,7 +129,7 @@ async function main() {
   assert.equal(primeras.size, 2, "una pauta sin contactId no crea entrada");
 
   // ── Opción múltiple: basta un valor seleccionado (O dentro del filtro) ────
-  const ctxMulti = buildFilterContext([], []);
+  const ctxMulti = buildFilterContext([], [], []);
   const multi = opp("m", { customFieldsResolved: { "Origen de Lead": ["Facebook", "Instagram"] } });
   assert.ok(opportunityPasses(multi, filters({ origins: ["Instagram"] }), ctxMulti));
   assert.ok(!opportunityPasses(multi, filters({ origins: ["TikTok"] }), ctxMulti));
@@ -148,7 +148,7 @@ async function main() {
     contacts: [contact("c1")],
     pautas: [historial[0]],
   };
-  const ctxBase = buildFilterContext(base.contacts, historial);
+  const ctxBase = buildFilterContext(base.contacts, historial, base.opportunities);
   const passthrough = applyDashboardFilters(base, EMPTY_FILTERS, ctxBase);
   assert.equal(passthrough.opportunities, base.opportunities, "misma referencia, no una copia");
   assert.equal(passthrough.contacts, base.contacts);
@@ -187,7 +187,7 @@ async function main() {
     { id: "m2", contactId: "c3", direction: "inbound", source: "whatsapp", createdAt: "2026-02-01T00:00:00Z" },
   ];
   const data = { opportunities, contacts, appointments, tasks, pautas, messages };
-  const ctx = buildFilterContext(contacts, pautas);
+  const ctx = buildFilterContext(contacts, pautas, opportunities);
 
   // Status = Ganado. Solo sobrevive la oportunidad ganada de c1; c1 arrastra su
   // cita y su mensaje. c2 desaparece entero. c3 NO tiene oportunidades, y con un
@@ -232,6 +232,85 @@ async function main() {
   const anaYGanado = applyDashboardFilters(data, filters({ advisors: ["Ana"], status: ["won"] }), ctx);
   assert.deepEqual(anaYGanado.opportunities.map((o) => o.id), ["o-c1-won"]);
   assert.deepEqual(anaYGanado.contacts.map((c) => c.id), ["c1"], "c3 se cae: status excluye huérfanos");
+
+  // ── Registro dentro de la ventana, contacto fuera ─────────────────────────
+  // El caso de Balvanera: el escenario de Make creó el 3 de agosto ocho pautas
+  // para contactos entrados en julio. La pauta cae en la ventana; el contacto y su
+  // oportunidad, no. Antes de `outOfWindowContactPasses` esas pautas se caían con
+  // CUALQUIER filtro activo, incluso uno que seleccionara todas sus opciones, y la
+  // gráfica "Pautas por canal" pasaba de 21 a 13 formularios sin explicación.
+  const cJulio = contact("c-julio", { assignedTo: "Ana", createdAt: "2026-07-22T00:00:00Z" });
+  const oJulio = opp("o-julio", {
+    contactId: "c-julio",
+    assignedTo: "Ana",
+    status: "won",
+    createdAt: "2026-07-22T00:00:00Z",
+  });
+  const pAgosto = pauta("p-agosto", "c-julio", "Formulario", "2026-08-03T19:02:00Z");
+
+  // `data` simula lo que llega YA recortado por fecha: la pauta sí, el contacto y
+  // la oportunidad no. El contexto, en cambio, se construye sobre el historial.
+  const rezagada = {
+    ...EMPTY_DATA,
+    opportunities: [...opportunities],
+    contacts: [...contacts],
+    pautas: [...pautas, pAgosto],
+  };
+  const ctxRezagada = buildFilterContext(
+    [...contacts, cJulio],
+    [...pautas, pAgosto],
+    [...opportunities, oJulio],
+  );
+
+  // Sin filtros la pauta ya se veía; el bug era que aparecer/desaparecer dependía
+  // de que hubiera un filtro activo.
+  assert.ok(
+    applyDashboardFilters(rezagada, EMPTY_FILTERS, ctxRezagada).pautas.includes(pAgosto),
+  );
+
+  // Filtro que selecciona TODAS las opciones: no debe borrar nada.
+  const todoSeleccionado = filters({
+    advisors: ["Ana", "Beto", SIN_ASESOR],
+    pautaTypes: ["Google Ads", "Meta Ads", "Formulario", SIN_PAUTA],
+  });
+  assert.ok(
+    applyDashboardFilters(rezagada, todoSeleccionado, ctxRezagada).pautas.includes(pAgosto),
+    "un filtro que selecciona todo no puede recortar nada",
+  );
+
+  // Y el criterio se respeta: la pauta entra por Formulario, no por Meta Ads.
+  assert.ok(
+    applyDashboardFilters(rezagada, filters({ pautaTypes: ["Formulario"] }), ctxRezagada)
+      .pautas.includes(pAgosto),
+  );
+  assert.ok(
+    !applyDashboardFilters(rezagada, filters({ pautaTypes: ["Meta Ads"] }), ctxRezagada)
+      .pautas.includes(pAgosto),
+  );
+
+  // Status se juzga contra la oportunidad de julio: es la única que existe.
+  assert.ok(
+    applyDashboardFilters(rezagada, filters({ status: ["won"] }), ctxRezagada)
+      .pautas.includes(pAgosto),
+  );
+  assert.ok(
+    !applyDashboardFilters(rezagada, filters({ status: ["lost"] }), ctxRezagada)
+      .pautas.includes(pAgosto),
+  );
+
+  // El contacto rezagado NO entra al dataset de contactos: eso movería "Leads sin
+  // oportunidad", que se mide contra la ventana de fechas.
+  assert.deepEqual(
+    applyDashboardFilters(rezagada, filters({ advisors: ["Ana"] }), ctxRezagada)
+      .contacts.map((c) => c.id),
+    ["c1", "c3"],
+    "la puerta de atrás alcanza a los registros, no al dataset de contactos",
+  );
+
+  // Un contacto CON oportunidad en la ventana que el filtro rechazó no se
+  // readmite por tener registros: eso contradiría el filtro.
+  const rechazado = applyDashboardFilters(rezagada, filters({ advisors: ["Ana"] }), ctxRezagada);
+  assert.ok(!rechazado.pautas.some((p) => p.id === "pa2"), "c2 es de Beto: su pauta se queda fuera");
 
   // ── Opciones de los menús ─────────────────────────────────────────────────
   const options = buildFilterOptions(opportunities, ctx);

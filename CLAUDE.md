@@ -462,6 +462,18 @@ re-inlinees ninguna de estas reglas en un componente.
   oportunidad" daría siempre 0 — una respuesta falsa, no un cero real. **Status es la
   excepción**: quien nunca tuvo una oportunidad no puede estar "Ganado", y ahí el cero sí
   es real.
+- **Un registro puede caer en la ventana con su contacto fuera** (`outOfWindowContactPasses`).
+  El escenario de Make de Balvanera creó el 3 de agosto ocho pautas para contactos entrados
+  en julio: la pauta cae en la ventana, el contacto y su oportunidad no. Las dos fuentes de
+  `allowedContactIds` — dueños de oportunidades supervivientes y `data.contacts` — están
+  ambas recortadas por fecha, así que lo perdían y el registro se caía en `byContact()`
+  **aunque cumpliera el criterio**. Síntoma: la gráfica "Pautas por canal" pasaba de 21 a 13
+  formularios con CUALQUIER filtro activo, incluso uno que seleccionara todas las opciones
+  de su menú. Ese contacto se juzga por sus oportunidades del **historial completo**
+  (`ctx.opportunitiesByContact`), y si nunca tuvo, a nivel contacto. **No entra a
+  `contacts`**: eso movería "Leads sin oportunidad", que se mide contra la ventana. Y un
+  contacto **con** oportunidad en la ventana que el filtro rechazó no se readmite por esta
+  puerta — sus oportunidades ya decidieron.
 - **Origen de lead es el campo personalizado crudo**, no `platformLabel()`. Se busca por
   substring (*origen* + *lead*) porque el nombre varía por sub-cuenta, con fallback al
   campo del contacto. Los valores salen sin normalizar: en Yconia conviven "Lead César" y

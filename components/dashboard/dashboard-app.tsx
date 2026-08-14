@@ -169,11 +169,17 @@ export function DashboardApp() {
 
   // ── Etapa 2: los filtros de atributo, en cascada por contacto ────────────
   // El contexto se construye sobre los arreglos COMPLETOS: el contacto dueño de
-  // una oportunidad, o la primera pauta de un contacto, pueden caer fuera de la
-  // ventana de fecha y aun así ser quienes clasifican.
+  // una oportunidad, la primera pauta de un contacto, o la única oportunidad que
+  // ese contacto llegó a tener, pueden caer fuera de la ventana de fecha y aun así
+  // ser quienes clasifican.
   const filterCtx = useMemo(
-    () => buildFilterContext(data?.contacts ?? [], data?.pautas ?? []),
-    [data?.contacts, data?.pautas]
+    () =>
+      buildFilterContext(
+        data?.contacts ?? [],
+        data?.pautas ?? [],
+        data?.opportunities ?? []
+      ),
+    [data?.contacts, data?.pautas, data?.opportunities]
   )
 
   // Las opciones salen de las oportunidades filtradas solo por fecha: si se
