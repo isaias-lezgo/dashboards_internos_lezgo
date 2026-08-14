@@ -12,6 +12,7 @@ interface SectionPayload {
 interface AnalyzeReportBody {
   reportType: "marketing" | "ventas";
   periodLabel?: string;
+  filtersLabel?: string;
   kpis: { label: string; value: string }[];
   sections: SectionPayload[];
 }
@@ -77,6 +78,9 @@ export async function POST(req: Request) {
   const userContent = [
     `Tipo de reporte: ${body.reportType === "marketing" ? "Marketing (adquisición)" : "Ventas (comercial)"}`,
     `Periodo: ${body.periodLabel ?? "Todo el historial"}`,
+    // Sin esto el modelo lee un subconjunto filtrado como si fuera el total del
+    // periodo y concluye caídas que no existen.
+    `Filtros aplicados: ${body.filtersLabel ?? "ninguno (todo el panel)"}`,
     `KPIs: ${JSON.stringify(body.kpis ?? [])}`,
     `Secciones a analizar:`,
     JSON.stringify(body.sections),

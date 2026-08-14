@@ -26,6 +26,7 @@ pnpm verify:context      # lib/ghl-context.ts — credential isolation across co
 pnpm verify:attachments  # lib/attachments.ts + lib/attachment-tools.ts — tabular parse/query/join
 pnpm verify:cf-merge     # lib/custom-field-merge.ts — fusión de opciones (no borra) + validación de valores
 pnpm verify:write-tools  # WRITE_TOOLS ⊇ definiciones + lista blanca de /api/ghl-write sin borrado
+pnpm verify:filters      # lib/dashboard-filters.ts — la cascada por contacto + los cuatro criterios
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
@@ -429,7 +430,54 @@ Both dashboards export a branded PDF via `components/dashboard/export-report-but
 - **No mock-data fallback**: when the GHL API is unavailable or errors, the UI renders against empty arrays (`data?.contacts ?? []` patterns in `app/page.tsx`). The former `lib/mock-data.ts` and its stand-ins have been removed.
 - **All GHL API calls are server-only**: `lib/ghl-client.ts` is never imported from client components — only from API routes. This keeps the token out of the browser bundle. Client code reaches GHL data through `lib/ghl-fetchers.ts`, which calls those routes.
 - **`/opportunities/search` uses `location_id` (snake_case)** while most other endpoints use `locationId` (camelCase). The `useSnakeCaseLocationId` flag in `ghlFetch` handles this quirk.
-- **Filtering is entirely client-side and date-range only**: `lib/date-range.ts` (`DateFilter`, `resolveDateRange`, `filterByDateRange`) filters the already-fetched dataset by date; `components/dashboard/date-range-filter.tsx` is the UI. The filtered slices are computed in `app/page.tsx` and passed to each dashboard as props. The date filter bar is hidden on the AI assistant tab, which always sees the full dataset.
+- **Filtering is entirely client-side**, in two stages, both computed in
+  `dashboard-app.tsx` and passed to each dashboard as props. The filter bar is hidden on
+  the AI assistant tab, which always sees the full dataset.
+  1. **Fecha** — `lib/date-range.ts` (`DateFilter`, `resolveDateRange`,
+     `filterByDateRange`) recorta cada dataset por su propia fecha, independientemente.
+  2. **Atributos** — `lib/dashboard-filters.ts`: Status, Asesor, Origen de lead y Tipo
+     de pauta. Ver "Los filtros de atributo" abajo.
+
+  `components/dashboard/filter-bar.tsx` es la única barra sticky y compone las dos:
+  `date-range-filter.tsx` aporta solo sus controles (su `<section>` se movió a la barra)
+  y `multi-select-filter.tsx` es el popover genérico usado por los cuatro.
+
+### Los filtros de atributo
+
+`lib/dashboard-filters.ts` es la **única fuente de verdad** de los cuatro criterios. No
+re-inlinees ninguna de estas reglas en un componente.
+
+- **El modelo es una cascada por contacto.** Los filtros se evalúan una sola vez sobre
+  oportunidades; de las supervivientes sale un conjunto de contactos que recorta citas,
+  tareas, pautas y mensajes. Sin esto, la mitad del panel respondería al filtro y la
+  otra mitad no.
+- **Status usa `isWonOpp()`, no el campo crudo de GHL.** Varias sub-cuentas nunca ponen
+  `status: "won"` y registran la venta moviendo la etapa a "Negocio Ganado". Con el campo
+  crudo, filtrar "Ganado" devolvería cero junto a un KPI que muestra decenas.
+- **Un contacto sin oportunidades se evalúa sobre sus propios campos**
+  (`orphanContactPasses`). Tres de los cuatro criterios existen a nivel contacto:
+  `assignedTo` es suyo, "Origen de Lead" es originalmente suyo (`lib/sync.ts` lo copia a
+  la oportunidad, no al revés) y la primera pauta es contact-level por construcción. Sin
+  esa rama, tocar cualquier filtro borraría a todo contacto sin oportunidad y "Leads sin
+  oportunidad" daría siempre 0 — una respuesta falsa, no un cero real. **Status es la
+  excepción**: quien nunca tuvo una oportunidad no puede estar "Ganado", y ahí el cero sí
+  es real.
+- **Origen de lead es el campo personalizado crudo**, no `platformLabel()`. Se busca por
+  substring (*origen* + *lead*) porque el nombre varía por sub-cuenta, con fallback al
+  campo del contacto. Los valores salen sin normalizar: en Yconia conviven "Lead César" y
+  "Leads César". Normalizarlos es una decisión de negocio, no de código.
+- **Tipo de pauta es el de la PRIMERA pauta del contacto**, espejo deliberado de
+  `buildPautaNameByContact` en `lib/pauta.ts`. Se construye sobre el historial completo,
+  no sobre el filtrado por fecha.
+- **Sin filtros activos, `applyDashboardFilters` devuelve los MISMOS arreglos por
+  referencia**, para que los memos aguas abajo no se invaliden y el panel se comporte
+  exactamente como antes de que la barra existiera.
+- Las opciones de los menús se derivan de las oportunidades filtradas **solo por fecha**.
+  Recalcularlas sobre el resultado ya filtrado haría que elegir "Ganado" borrara del menú
+  a los demás status, sin forma de volver.
+- Los filtros activos viajan al PDF como `filtersLabel` (`describeFilters`), aparte de
+  `periodLabel`: un reporte recortado a un asesor que no lo declara miente, y el prompt
+  de `analyze-report` lo necesita para no leer un subconjunto como si fuera el total.
 - **`calls` is always empty** in live data — GHL doesn't expose a public calls endpoint in the standard API. **`tasks` is populated** via the location-wide `/locations/:id/tasks/search` endpoint (`searchLocationTasks`), fetched concurrently with the other datasets.
 - **Drill-downs resolve joins against the *unfiltered* set.** Dashboards take both
   `opportunities` (date-filtered, for display) and `allOpportunities` (everything, as a

@@ -100,6 +100,8 @@ interface SalesDashboardProps {
   locationName?: string
   /** Label of the active global date filter, shown on the PDF report cover. */
   periodLabel?: string
+  /** Resumen de los filtros de atributo activos, si los hay. */
+  filtersLabel?: string
 }
 
 // Funnel milestones are one quantity draining through stages, so hue carries no
@@ -143,7 +145,7 @@ function startOfWeek(input: Date): Date {
   return d
 }
 
-export function SalesDashboard({ opportunities, allOpportunities, contacts, allContacts, calls, messages = [], allMessages, appointments = [], allAppointments, pipelines = [], tasks = [], pautas = [], members: membersProp = [], locationId = "", locationName, periodLabel }: SalesDashboardProps) {
+export function SalesDashboard({ opportunities, allOpportunities, contacts, allContacts, calls, messages = [], allMessages, appointments = [], allAppointments, pipelines = [], tasks = [], pautas = [], members: membersProp = [], locationId = "", locationName, periodLabel, filtersLabel }: SalesDashboardProps) {
   // Lookup table for drawer contact-resolution: the full set when provided,
   // falling back to the date-filtered `contacts` for backward compatibility.
   const lookupContacts = allContacts ?? contacts
@@ -181,7 +183,12 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
     const lost = opportunities.filter((o) => o.status === "lost").length
     const abandoned = opportunities.filter((o) => o.status === "abandoned").length
     const wonRevenue = opportunities.filter(isWonOpp).reduce((sum, o) => sum + o.value, 0)
-    const activeMembers = membersProp.length > 0
+    // `membersProp` es la plantilla completa de la sub-cuenta, y es la mejor
+    // respuesta mientras se ve todo: cubre a quien no tiene oportunidades en la
+    // ventana. Pero con un filtro puesto deja de serlo — filtrar a un asesor y
+    // seguir leyendo "17 miembros activos" es falso. `filtersLabel` está
+    // definido exactamente cuando hay algún filtro de atributo activo.
+    const activeMembers = membersProp.length > 0 && !filtersLabel
       ? membersProp.length
       : new Set(opportunities.map((o) => o.assignedTo).filter(Boolean)).size
     const conversionRate = total > 0 ? (won / total) * 100 : 0
@@ -198,7 +205,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
     const oppsWithContact = opportunities.filter((o) => o.contactId && contactIdsInList.has(o.contactId))
     const oppsMultiContact = opportunities.filter((o) => o.contactId && (oppCountByContact.get(o.contactId) ?? 0) > 1)
     return { total, won, open, lost, abandoned, wonRevenue, activeMembers, conversionRate, contactsTotal, contactsWithOpportunity, contactsWithoutOpportunity, contactsWithMultipleOpportunities, contactsWithoutOpp, oppsWithContact, oppsMultiContact }
-  }, [opportunities, contacts, membersProp])
+  }, [opportunities, contacts, membersProp, filtersLabel])
 
   // ── Embudo: hitos del recorrido del lead (lead → contacto → cita → realizada → ganado) ──
   const funnelData = useMemo(() => {
@@ -719,6 +726,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
       title: "Reporte de Ventas",
       locationName,
       periodLabel,
+      filtersLabel,
       kpis: [
         { label: "Ingreso ganado", value: mxn(kpiMetrics.wonRevenue) },
         { label: "Oportunidades", value: String(kpiMetrics.total) },
@@ -732,7 +740,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
   }, [
     timelineData, timelineGran, funnelData, monthlyFunnel, origenData, pipelineMatrix,
     matrixBy, apptOutcomeData, lossGroupsData, kpiMetrics, appointments.length,
-    contacts.length, opportunities.length, periodLabel, locationName,
+    contacts.length, opportunities.length, periodLabel, filtersLabel, locationName,
     opportunities, lookupContacts, lookupAppointments,
   ])
 

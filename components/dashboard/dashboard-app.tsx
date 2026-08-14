@@ -6,8 +6,16 @@ import dynamic from "next/dynamic"
 import { useTheme } from "next-themes"
 import { AnimatePresence } from "framer-motion"
 import { MarketingDashboard } from "@/components/dashboard/marketing-dashboard"
-import { DateRangeFilter } from "@/components/dashboard/date-range-filter"
+import { FilterBar } from "@/components/dashboard/filter-bar"
 import { filterByDateRange, resolveDateRange, type DateFilter } from "@/lib/date-range"
+import {
+  EMPTY_FILTERS,
+  applyDashboardFilters,
+  buildFilterContext,
+  buildFilterOptions,
+  describeFilters,
+  type DashboardFilters,
+} from "@/lib/dashboard-filters"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { SalesDashboard } from "@/components/dashboard/sales-dashboard"
@@ -108,6 +116,7 @@ export function DashboardApp() {
   const { messages } = useConversationsData()
 
   const [dateFilter, setDateFilter] = useState<DateFilter>({ preset: "all" })
+  const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS)
   const dateRange = useMemo(() => resolveDateRange(dateFilter), [dateFilter])
 
   // Human label of the active date filter, for the PDF report cover.
@@ -124,36 +133,92 @@ export function DashboardApp() {
     }
   }, [dateFilter.preset, dateRange])
 
-  const contacts = useMemo(
+  // Los filtros activos van a la portada del PDF por separado del periodo: un
+  // reporte recortado a un asesor que no lo declara miente.
+  const filtersLabel = useMemo(() => describeFilters(filters) ?? undefined, [filters])
+
+  // ── Etapa 1: la ventana de fecha, dataset por dataset ────────────────────
+  const datedContacts = useMemo(
     () => filterByDateRange(data?.contacts ?? [], (c) => c.createdAt, dateRange),
     [data?.contacts, dateRange]
   )
-  const opportunities = useMemo(
+  const datedOpportunities = useMemo(
     () => filterByDateRange(data?.opportunities ?? [], (o) => o.createdAt, dateRange),
     [data?.opportunities, dateRange]
   )
-  const calls = useMemo(
+  const datedCalls = useMemo(
     () => filterByDateRange(data?.calls ?? [], (c) => c.createdAt, dateRange),
     [data?.calls, dateRange]
   )
-  const appointments = useMemo(
+  const datedAppointments = useMemo(
     () => filterByDateRange(data?.appointments ?? [], (a) => a.startTime, dateRange),
     [data?.appointments, dateRange]
   )
-  const tasks = useMemo(
+  const datedTasks = useMemo(
     () => filterByDateRange(data?.tasks ?? [], (t) => t.createdAt ?? t.dueDate, dateRange),
     [data?.tasks, dateRange]
   )
-  const pautas = useMemo(
+  const datedPautas = useMemo(
     () => filterByDateRange(data?.pautas ?? [], (p) => p.createdAt, dateRange),
     [data?.pautas, dateRange]
   )
-  const filteredMessages = useMemo(
+  const datedMessages = useMemo(
     () => filterByDateRange(messages, (m) => m.createdAt, dateRange),
     [messages, dateRange]
   )
+
+  // ── Etapa 2: los filtros de atributo, en cascada por contacto ────────────
+  // El contexto se construye sobre los arreglos COMPLETOS: el contacto dueño de
+  // una oportunidad, o la primera pauta de un contacto, pueden caer fuera de la
+  // ventana de fecha y aun así ser quienes clasifican.
+  const filterCtx = useMemo(
+    () => buildFilterContext(data?.contacts ?? [], data?.pautas ?? []),
+    [data?.contacts, data?.pautas]
+  )
+
+  // Las opciones salen de las oportunidades filtradas solo por fecha: si se
+  // recalcularan sobre el resultado ya filtrado, elegir "Ganado" borraría del
+  // menú a los demás status y no habría forma de volver.
+  const filterOptions = useMemo(
+    () => buildFilterOptions(datedOpportunities, filterCtx),
+    [datedOpportunities, filterCtx]
+  )
+
+  const filtered = useMemo(
+    () =>
+      applyDashboardFilters(
+        {
+          opportunities: datedOpportunities,
+          contacts: datedContacts,
+          appointments: datedAppointments,
+          tasks: datedTasks,
+          pautas: datedPautas,
+          messages: datedMessages,
+        },
+        filters,
+        filterCtx
+      ),
+    [
+      datedOpportunities, datedContacts, datedAppointments,
+      datedTasks, datedPautas, datedMessages, filters, filterCtx,
+    ]
+  )
+
+  const { contacts, opportunities, appointments, tasks, pautas } = filtered
+  const filteredMessages = filtered.messages
+
+  // `calls` viene siempre vacío en datos reales (GHL no expone endpoint público
+  // de llamadas), así que no vale la pena que entre al bundle de la cascada —
+  // pero si algún día se llena, debe recortarse por el mismo conjunto.
+  const calls = useMemo(
+    () =>
+      filtered.allowedContactIds
+        ? datedCalls.filter((c) => filtered.allowedContactIds!.has(c.contactId))
+        : datedCalls,
+    [datedCalls, filtered.allowedContactIds]
+  )
+
   const availableMembers = data?.members ?? []
-  const availableTags = data?.tags ?? []
 
   // showLoading, not isLoading: a warm cache read lands in about a second, and a
   // loading screen that flashes in and out reads as a glitch. On the cold path the
@@ -341,7 +406,15 @@ export function DashboardApp() {
       </nav>
 
       {activeTab !== "conversations" && (
-        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+        <FilterBar
+          dateFilter={dateFilter}
+          onDateChange={setDateFilter}
+          filters={filters}
+          onFiltersChange={setFilters}
+          options={filterOptions}
+          shown={opportunities.length}
+          total={filtered.totalOpportunities}
+        />
       )}
 
       {/* Dashboard Content */}
@@ -362,6 +435,7 @@ export function DashboardApp() {
             locationId={data?.locationId ?? ""}
             locationName={locationName ?? undefined}
             periodLabel={periodLabel}
+            filtersLabel={filtersLabel}
           />
         )}
         {activeTab === "sales" && (
@@ -382,6 +456,7 @@ export function DashboardApp() {
             locationId={data?.locationId ?? ""}
             locationName={locationName ?? undefined}
             periodLabel={periodLabel}
+            filtersLabel={filtersLabel}
           />
         )}
         {/* Kept permanently mounted (hidden when inactive) so the AI chat

@@ -135,6 +135,8 @@ interface MarketingDashboardProps {
   locationName?: string
   /** Label of the active global date filter, shown on the PDF report cover. */
   periodLabel?: string
+  /** Resumen de los filtros de atributo activos, si los hay. */
+  filtersLabel?: string
 }
 
 // Normalize any createdAt format → "YYYY-MM-DD" (UTC). Handles ISO strings,
@@ -475,7 +477,7 @@ function TopNSlider({ value, max, onChange }: { value: number; max: number; onCh
   )
 }
 
-export function MarketingDashboard({ opportunities, allOpportunities, contacts, allContacts, pautas, allPautas, pipelines = [], tasks = [], calls = [], appointments = [], allAppointments, locationId = "", locationName, periodLabel }: MarketingDashboardProps) {
+export function MarketingDashboard({ opportunities, allOpportunities, contacts, allContacts, pautas, allPautas, pipelines = [], tasks = [], calls = [], appointments = [], allAppointments, locationId = "", locationName, periodLabel, filtersLabel }: MarketingDashboardProps) {
   // Lookup table for drawer contact-resolution: the full set when provided,
   // falling back to the date-filtered `contacts` for backward compatibility.
   const lookupContacts = allContacts ?? contacts
@@ -1257,6 +1259,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       title: "Reporte de Marketing",
       locationName,
       periodLabel,
+      filtersLabel,
       kpis: [
         { label: "Oportunidades", value: String(opportunities.length) },
         { label: "Oportunidades por pauta", value: String(pautaOppCount) },
@@ -1272,7 +1275,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     lostByReasonRows, lostByReasonTotal, originRows, leadsByAdId,
     leadsByPlatformUrl, paidTrafficWithAppt, apptKeyCount,
     wonPaidTraffic, wonKeyCount, wonBySource, wonTotal,
-    opportunities.length, pautaOppCount, pautas.length, reingresoCount, periodLabel,
+    opportunities.length, pautaOppCount, pautas.length, reingresoCount, periodLabel, filtersLabel,
     locationName, originGroupBy, stageIncludeLost, stageGroupBy, pautaByStageConfig,
     apptGroupBy, apptStatusFilter, wonGroupBy,
   ])

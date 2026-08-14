@@ -16,6 +16,7 @@
     "verify:attachments": "tsx scripts/verify-attachments.ts",
     "verify:cf-merge": "tsx scripts/verify-custom-field-merge.ts",
     "verify:write-tools": "tsx scripts/verify-write-tools.ts",
+    "verify:filters": "tsx scripts/verify-dashboard-filters.ts",
     "add-client": "tsx scripts/add-client.ts",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },

@@ -27,6 +27,13 @@ export interface ReportInput {
   locationName?: string
   /** Human label of the active global date filter, e.g. "Últimos 30 días". */
   periodLabel?: string
+  /**
+   * Resumen de los filtros de atributo activos ("Status: Ganado · Asesor: Ana").
+   * Va aparte de `periodLabel` y no en el `accent` de la portada: un reporte
+   * recortado a un asesor que no lo declara miente, pero la portada tampoco
+   * aguanta una lista que crece con cada casilla marcada.
+   */
+  filtersLabel?: string
   kpis: { label: string; value: string }[]
   sections: ReportSection[]
 }
@@ -57,6 +64,7 @@ export function buildAnalyzePayload(input: ReportInput) {
   return {
     reportType: input.reportType,
     periodLabel: input.periodLabel,
+    filtersLabel: input.filtersLabel,
     kpis: input.kpis,
     sections: input.sections
       .filter((s) => s.ai !== false)
@@ -86,6 +94,12 @@ export function buildReportSpec(input: ReportInput, ai: ReportAiResult | null): 
   blocks.push({ t: "heading", text: "Resumen general" })
   if (input.periodLabel) {
     blocks.push({ t: "text", text: `Periodo del reporte: **${input.periodLabel}**.` })
+  }
+  if (input.filtersLabel) {
+    blocks.push({
+      t: "text",
+      text: `Filtros aplicados: **${input.filtersLabel}**. Todas las cifras de este reporte están recortadas a ese subconjunto.`,
+    })
   }
   blocks.push({ t: "kpis", items: input.kpis })
 
