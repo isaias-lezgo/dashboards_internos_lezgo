@@ -1,29 +1,31 @@
 "use client"
 
+import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
+import { useEffect, useState } from "react"
 import type { StepKey, StepMap } from "@/hooks/use-dashboard-data"
 
 interface LoadingScreenProps {
   progress: string
   /** Name of the GHL sub-account being opened. Empty until resolved. */
   locationName?: string
-  /** Live per-dataset progress. All datasets load concurrently. */
+  /** Live per-dataset progress. Only ever advances on the cold path. */
   steps?: StepMap
 }
 
-// Visible rows, in display order, with their Spanish labels. These mirror the
-// concurrent fetches in /api/dashboard — each advances independently.
-const STEP_ROWS: { key: StepKey; label: string }[] = [
-  { key: "config", label: "Configuración" },
-  { key: "contacts", label: "Contactos" },
-  { key: "opportunities", label: "Oportunidades" },
-  { key: "pautas", label: "Pautas" },
-  { key: "appointments", label: "Citas" },
-  { key: "tasks", label: "Tareas" },
+// The datasets /api/dashboard fetches concurrently. They are no longer listed
+// one row each — the screen only counts them, to size the progress rail.
+const STEP_KEYS: StepKey[] = [
+  "config",
+  "contacts",
+  "opportunities",
+  "pautas",
+  "appointments",
+  "tasks",
 ]
 
-const FALLBACK_STEPS: StepMap = {
-  config: { status: "loading" },
+const IDLE_STEPS: StepMap = {
+  config: { status: "pending" },
   contacts: { status: "pending" },
   opportunities: { status: "pending" },
   pautas: { status: "pending" },
@@ -31,143 +33,71 @@ const FALLBACK_STEPS: StepMap = {
   tasks: { status: "pending" },
 }
 
-function SyncRing() {
-  const size = 88
-  const stroke = 2.5
-  const r = (size - stroke) / 2
-  const circumference = 2 * Math.PI * r
+// ease-out-expo. Everything here decelerates; nothing overshoots.
+const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
+// How long a silent wait may run before the screen admits something is slow.
+// Under this the warm cache has almost always landed and there is nothing true
+// to report, so the screen says nothing.
+const PATIENCE_MS = 5000
+
+/**
+ * The one moving element. Indeterminate (`ratio === null`) while we are waiting
+ * on the cache, determinate once a live sync is actually reporting datasets —
+ * a percentage during a one-second cache read would be invented.
+ */
+function Rail({ ratio }: { ratio: number | null }) {
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        className="-rotate-90"
-        aria-hidden
-      >
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="hsl(var(--border))"
-          strokeWidth={stroke}
+    <div
+      className="relative h-[3px] w-44 overflow-hidden rounded-full bg-border"
+      aria-hidden
+    >
+      {ratio === null ? (
+        <motion.div
+          // Travel stops short of the full width at both ends, and runs at a
+          // constant speed: an ease-in-out that parks the segment outside the
+          // rail leaves it visibly blank at every turn, which reads as stalled.
+          className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary"
+          animate={{ x: ["-70%", "270%"] }}
+          transition={{ duration: 1.25, repeat: Infinity, ease: "linear" }}
         />
-        <motion.circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="hsl(var(--primary))"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          animate={{ strokeDashoffset: [circumference, circumference * 0.25, circumference] }}
-          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+      ) : (
+        <motion.div
+          // scaleX, not width: width is a layout property and animating it
+          // forces a reflow on every frame of the sync.
+          className="absolute inset-0 origin-left rounded-full bg-primary"
+          initial={{ scaleX: 0.04 }}
+          animate={{ scaleX: Math.max(ratio, 0.04) }}
+          transition={{ duration: 0.5, ease: EASE_OUT_EXPO }}
         />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center gap-[3px]">
-        {[0, 1, 2, 3].map((i) => (
-          <motion.span
-            key={i}
-            className="w-[3px] rounded-full bg-primary"
-            style={{ height: 14 }}
-            animate={{ scaleY: [0.35, 1, 0.5, 0.85, 0.35] }}
-            transition={{
-              duration: 1.1,
-              delay: i * 0.12,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
-      </div>
+      )}
     </div>
   )
 }
 
-function StepRow({
-  label,
-  status,
-  count,
-  delay,
-}: {
-  label: string
-  status: "pending" | "loading" | "done"
-  count?: number
-  delay: number
-}) {
-  const isDone = status === "done"
-  const isActive = status === "loading"
-
-  return (
-    <motion.div
-      className="flex items-center gap-3"
-      initial={{ opacity: 0, x: -8 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay, duration: 0.3 }}
-    >
-      <span
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold transition-colors duration-300 ${
-          isDone
-            ? "bg-primary text-primary-foreground"
-            : isActive
-              ? "border-2 border-primary bg-primary/10 text-primary"
-              : "border border-border bg-muted/50 text-muted-foreground"
-        }`}
-      >
-        {isDone ? (
-          <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M2 6l3 3 5-6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : isActive ? (
-          <motion.span
-            className="h-1.5 w-1.5 rounded-full bg-primary"
-            animate={{ scale: [1, 1.35, 1], opacity: [1, 0.6, 1] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          />
-        ) : (
-          <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
-        )}
-      </span>
-
-      <span
-        className={`flex-1 text-sm transition-colors duration-300 ${
-          isActive ? "font-medium text-foreground" : isDone ? "text-muted-foreground" : "text-muted-foreground/60"
-        }`}
-      >
-        {label}
-      </span>
-
-      {/* Live count: shows the running total while loading and the final total
-          when done. Tabular numerals keep the column from jittering as digits
-          change. */}
-      <span className="min-w-[3.5rem] text-right text-xs tabular-nums">
-        {count !== undefined && (isActive || isDone) ? (
-          <motion.span
-            key={`${status}-${count}`}
-            className={isDone ? "font-medium text-foreground" : "text-muted-foreground"}
-            initial={{ opacity: 0.4 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.15 }}
-          >
-            {count.toLocaleString("es-MX")}
-          </motion.span>
-        ) : isActive ? (
-          <span className="text-muted-foreground/60">…</span>
-        ) : null}
-      </span>
-    </motion.div>
-  )
-}
-
 export function LoadingScreen({ progress, locationName, steps }: LoadingScreenProps) {
-  const resolved = steps ?? FALLBACK_STEPS
+  const resolved = steps ?? IDLE_STEPS
 
-  const total = STEP_ROWS.length
-  const completed = STEP_ROWS.filter((s) => resolved[s.key].status === "done").length
-  const pct = Math.round((completed / total) * 100)
+  // A step frame only ever arrives on the cold path — the cached response is a
+  // single `data` frame. So the first frame that moves off "pending" is the
+  // signal that this is a real GHL sync and not a sub-second cache read.
+  const syncing = STEP_KEYS.some((k) => resolved[k].status !== "pending")
+  const done = STEP_KEYS.filter((k) => resolved[k].status === "done").length
+
+  const [patienceSpent, setPatienceSpent] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setPatienceSpent(true), PATIENCE_MS)
+    return () => clearTimeout(id)
+  }, [])
+
+  // One status line, and only when there is something true to put in it. The
+  // sync's own messages already carry the dataset name and its running count,
+  // which is what the six rows used to do.
+  const detail = syncing
+    ? progress || "Sincronizando"
+    : patienceSpent
+      ? "Conectando con Lezgo Suite CRM"
+      : ""
 
   return (
     <motion.div
@@ -178,114 +108,65 @@ export function LoadingScreen({ progress, locationName, steps }: LoadingScreenPr
       initial={false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.25 }}
+      transition={{ duration: 0.2, ease: EASE_OUT_EXPO }}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="absolute inset-x-0 top-0 h-0.5 bg-primary/80" />
+      {/* The app's own identity block, centered — the same mark, wordmark and
+          kicker that take their place in the header a second later. */}
+      <div className="flex flex-col items-center px-8">
+        {/* The mark is a white "L" inside an amber outline: designed for the dark
+            header, invisible on a light background. It keeps its own navy plate
+            here — the same #0D172F as the header — so it reads in both themes. */}
+        <div
+          className="flex h-[60px] w-[60px] items-center justify-center rounded-[14px] border border-white/10 bg-[#0D172F]"
+          aria-hidden
+        >
+          <Image
+            src="/logo-mark.png"
+            alt=""
+            width={2851}
+            height={3371}
+            priority
+            className="h-8 w-auto"
+          />
+        </div>
 
-      <div className="flex w-full max-w-md flex-col items-center gap-10 px-8">
-        <SyncRing />
+        <h2 className="mt-4 text-[17px] font-semibold leading-tight tracking-tight text-foreground">
+          Lezgo Suite Analíticas
+        </h2>
 
-        <div className="flex w-full flex-col items-center gap-6">
-          <div className="text-center">
-            <motion.h2
-              className="text-2xl font-bold tracking-tight text-foreground"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.35 }}
-            >
-              Lezgo Suite Analíticas
-            </motion.h2>
-            <motion.p
-              className="mt-2 text-sm text-muted-foreground"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.35 }}
-            >
-              Abriendo subcuenta
-            </motion.p>
-            {/* Skeleton → name pill swap. Deliberately NOT wrapped in
-                AnimatePresence mode="wait": the placeholder's infinite-repeat
-                opacity animation never fires an exit-complete callback, which
-                deadlocks the presence swap so the pill never mounts. A plain
-                conditional with a CSS-pulse skeleton unmounts cleanly the
-                instant the sub-account name resolves. */}
-            <div className="mt-3 flex min-h-[2rem] items-center justify-center">
-              {locationName ? (
-                <motion.span
-                  key={locationName}
-                  className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-semibold text-primary"
-                  initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                >
-                  {locationName}
-                </motion.span>
-              ) : (
-                <span className="h-7 w-40 animate-pulse rounded-full bg-muted" aria-hidden />
-              )}
-            </div>
-          </div>
+        {/* No skeleton placeholder: on the cached path the sub-account name
+            never arrives before the data does, so a pill that pulses and then
+            vanishes would be promising something that was never coming. */}
+        <p className="mt-1.5 h-4 text-[12px] font-medium tracking-wide text-muted-foreground">
+          {locationName || "Marketing y Ventas"}
+        </p>
 
-          <div className="w-full space-y-2.5">
-            {STEP_ROWS.map((row, i) => {
-              const s = resolved[row.key]
-              return (
-                <StepRow
-                  key={row.key}
-                  label={row.label}
-                  status={s.status}
-                  count={s.count}
-                  delay={0.15 + i * 0.05}
-                />
-              )
-            })}
-          </div>
+        <div className="mt-8">
+          <Rail ratio={syncing ? done / STEP_KEYS.length : null} />
+        </div>
 
-          {/* Determinate progress bar driven by completed-step count, so the
-              user always sees how far along the sync is — not just motion. */}
-          <div className="w-full space-y-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
-              <motion.div
-                className="h-full rounded-full bg-primary"
-                initial={{ width: 0 }}
-                animate={{ width: `${pct}%` }}
-                transition={{ duration: 0.4, ease: "easeOut" }}
-              />
-            </div>
-            <div className="flex min-h-[1.25rem] items-center justify-between text-xs text-muted-foreground">
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={progress}
-                  className="max-w-[70%] truncate"
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {progress || "Sincronizando…"}
-                </motion.span>
-              </AnimatePresence>
-              <span className="tabular-nums">{pct}%</span>
-            </div>
-          </div>
+        {/* Reserved height so the line appearing on a slow sync doesn't shift
+            the block that is already on screen. */}
+        <div className="mt-4 flex h-4 items-center justify-center">
+          <AnimatePresence mode="wait">
+            {detail && (
+              <motion.span
+                key={detail}
+                className="max-w-[22rem] truncate text-[12px] tabular-nums text-muted-foreground"
+                initial={{ opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                transition={{ duration: 0.18, ease: EASE_OUT_EXPO }}
+              >
+                {detail}
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
       </div>
-
-      <motion.div
-        className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-border"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3 }}
-      >
-        <motion.div
-          className="h-full w-1/3 bg-primary"
-          animate={{ x: ["-100%", "400%"] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        />
-      </motion.div>
     </motion.div>
   )
 }

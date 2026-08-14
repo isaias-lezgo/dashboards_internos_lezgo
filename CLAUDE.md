@@ -335,7 +335,30 @@ normally again silently reintroduces the mismatch.
 
 The dashboard fetch streams NDJSON progress frames rather than returning a single JSON blob, so the UI can show live progress during the multi-second GHL sync:
 - `{ type: "location", name }` — sub-account name (resolved first, for the loading header).
-- `{ type: "step", key, status, count }` — structured per-dataset progress. `key` ∈ `config | contacts | opportunities | pautas | appointments | tasks`; `status` ∈ `loading | done`. Because those datasets are fetched **concurrently**, the loading screen (`components/dashboard/loading-screen.tsx`) renders one live row per dataset with a running count, plus a determinate progress bar driven by completed-step count.
+- `{ type: "step", key, status, count }` — structured per-dataset progress. `key` ∈ `config | contacts | opportunities | pautas | appointments | tasks`; `status` ∈ `loading | done`. The loading screen no longer lists these one row each — see below — but it still **counts** them to size its progress rail.
+
+**The loading screen is sized for the cached path, not the sync.** Since the Postgres
+cache landed, the normal open takes about a second, so `loading-screen.tsx` is a quiet
+identity hold: mark, wordmark, one rail. It says nothing it cannot know.
+
+- Two regimes, one screen, discriminated by whether **any step frame has arrived**. The
+  cached response is a single `data` frame, so all-pending means "waiting on the cache"
+  → indeterminate rail, no text. The moment a step frame moves off `pending` we are on
+  the cold path → the rail goes determinate on completed-step count and a single line
+  shows the sync's own progress message, which already carries the dataset name and its
+  running count. That is what replaced the six rows.
+- **Never show a percentage on the cached path.** The old screen rendered a determinate
+  bar pinned at 0% and "Iniciando sincronización…" for the whole one-second cache read,
+  because the cached path emits no frames to move them. A progress number that cannot
+  advance is worse than no number.
+- No skeleton for the sub-account name: on the cached path `locationName` never arrives
+  before the data does, so a pill that pulses and then vanishes promises something that
+  was never coming. The kicker falls back to "Marketing y Ventas".
+- The mark keeps its own `#0D172F` plate. It is a white "L" in an amber outline, drawn
+  for the dark header, and it disappears on the light theme's background without it.
+- `dashboard-app.tsx` delays mounting the screen by 300 ms, so a fast cache read never
+  flashes it at all. The screen's own 5 s `PATIENCE_MS` timer is the other end of that:
+  only past it does a still-silent wait admit it is slow.
 - `{ type: "progress", message }` — human-readable fallback text.
 - `{ type: "data", ... }` / `{ type: "error", ... }` — terminal frames.
 
