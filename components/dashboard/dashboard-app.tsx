@@ -186,8 +186,8 @@ export function DashboardApp() {
   // recalcularan sobre el resultado ya filtrado, elegir "Ganado" borraría del
   // menú a los demás status y no habría forma de volver.
   const filterOptions = useMemo(
-    () => buildFilterOptions(datedOpportunities, filterCtx),
-    [datedOpportunities, filterCtx]
+    () => buildFilterOptions(datedOpportunities, datedContacts, filterCtx),
+    [datedOpportunities, datedContacts, filterCtx]
   )
 
   const filtered = useMemo(

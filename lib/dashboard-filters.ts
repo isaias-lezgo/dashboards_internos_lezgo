@@ -414,12 +414,30 @@ function sortOptions(counts: Map<string, number>): FilterOption[] {
 }
 
 /**
- * Las opciones se derivan de las oportunidades filtradas SOLO por fecha, nunca de
- * las ya filtradas por atributo: si se recalcularan sobre el resultado, elegir
+ * Las opciones se derivan de los datasets filtrados SOLO por fecha, nunca de los
+ * ya filtrados por atributo: si se recalcularan sobre el resultado, elegir
  * "Ganado" borraría del menú a los demás status y no habría forma de volver.
+ *
+ * La regla que gobierna qué entra al menú: **un valor aparece si y sólo si algún
+ * registro puede ser seleccionado por él**. Tallar sólo oportunidades rompía esa
+ * equivalencia en una dirección — `orphanContactPasses` evalúa a los contactos sin
+ * oportunidad, pero sus valores nunca llegaban al menú, así que eran filtrables e
+ * inseleccionables a la vez. En Lezgo Suite (952 contactos contra 22
+ * oportunidades) eso escondía 433 leads de TikTok y 913 contactos "Sin asignar":
+ * el filtro de Origen simplemente no ofrecía "tiktok".
+ *
+ * Por eso hay una segunda pasada sobre los contactos de la ventana SIN oportunidad
+ * en ella — el mismo conjunto exacto que evalúa `orphanContactPasses`, leído con
+ * los mismos predicados a nivel contacto.
+ *
+ * `count` es entonces "unidades filtrables": oportunidades + contactos huérfanos,
+ * que es literalmente lo que la cascada evalúa. Status es la excepción y sigue
+ * contando sólo oportunidades, porque es el único criterio que no existe a nivel
+ * contacto.
  */
 export function buildFilterOptions(
   dateFilteredOpportunities: Opportunity[],
+  dateFilteredContacts: Contact[],
   ctx: FilterContext,
 ): FilterOptions {
   const status = new Map<string, number>()
@@ -427,11 +445,22 @@ export function buildFilterOptions(
   const origins = new Map<string, number>()
   const pautaTypes = new Map<string, number>()
 
+  const owners = new Set<string>()
   for (const o of dateFilteredOpportunities) {
+    if (o.contactId) owners.add(o.contactId)
     tally(status, statusKey(o))
     tally(advisors, advisorOf(o))
     for (const v of originsOfOpportunity(o, ctx.contactById.get(o.contactId))) tally(origins, v)
     tally(pautaTypes, pautaTipoOfContact(o.contactId, ctx))
+  }
+
+  // Segunda pasada: sólo los huérfanos. Un contacto que ya es dueño de una
+  // oportunidad de la ventana aportó por ella y contarlo aquí lo duplicaría.
+  for (const c of dateFilteredContacts) {
+    if (owners.has(c.id)) continue
+    tally(advisors, advisorOf(c))
+    for (const v of originsOfContact(c)) tally(origins, v)
+    tally(pautaTypes, pautaTipoOfContact(c.id, ctx))
   }
 
   return {

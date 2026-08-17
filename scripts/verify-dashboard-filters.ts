@@ -313,16 +313,39 @@ async function main() {
   assert.ok(!rechazado.pautas.some((p) => p.id === "pa2"), "c2 es de Beto: su pauta se queda fuera");
 
   // ── Opciones de los menús ─────────────────────────────────────────────────
-  const options = buildFilterOptions(opportunities, ctx);
+  // Un valor aparece en el menú si y sólo si algún registro puede ser
+  // seleccionado por él. c3 no tiene oportunidades, así que sus valores sólo
+  // llegan por la segunda pasada sobre contactos huérfanos.
+  const options = buildFilterOptions(opportunities, contacts, ctx);
   assert.deepEqual(options.status.map((o) => o.value), ["won", "lost"], "orden canónico, no por volumen");
+
+  // Status NO recibe a los huérfanos: sus cubos salen sólo de oportunidades, y un
+  // contacto sin oportunidad no tiene status. 2 ganada+perdida de c1, 1 de c2.
+  assert.deepEqual(options.status.map((o) => o.count), [1, 2], "status sigue contando sólo oportunidades");
+
   assert.deepEqual(options.advisors.map((o) => o.value), ["Ana", "Beto"]);
   assert.deepEqual(
     options.advisors.map((o) => o.count),
-    [2, 1],
-    "cuenta oportunidades, no contactos",
+    [3, 1],
+    "unidades filtrables: 2 oportunidades de Ana + el contacto huérfano c3",
   );
-  assert.deepEqual(options.pautaTypes.map((o) => o.value), ["Google Ads", "Meta Ads"]);
-  assert.deepEqual(options.origins.map((o) => o.value), [SIN_ORIGEN]);
+
+  // Instagram sólo existe en c3, que no tiene oportunidades. Antes de la segunda
+  // pasada este menú era [SIN_ORIGEN] y el valor era imposible de seleccionar
+  // pese a que orphanContactPasses sí lo evaluaba: 433 leads de TikTok en Lezgo
+  // Suite estaban en ese hueco.
+  assert.deepEqual(
+    options.origins.map((o) => o.value),
+    ["Instagram", SIN_ORIGEN],
+    "el origen de un contacto sin oportunidades es seleccionable",
+  );
+  assert.deepEqual(options.origins.map((o) => o.count), [1, 3]);
+
+  // c3 no tiene pautas → SIN_PAUTA, y el residuo va al final pese al empate.
+  assert.deepEqual(
+    options.pautaTypes.map((o) => o.value),
+    ["Google Ads", "Meta Ads", SIN_PAUTA],
+  );
 
   // El residuo va al final aunque sea el cubo más grande.
   const conSinAsignar = buildFilterOptions(
@@ -332,12 +355,22 @@ async function main() {
       opp("x3"),
       opp("x4"),
     ],
+    [],
     ctx,
   );
   assert.deepEqual(
     conSinAsignar.advisors.map((o) => o.value),
     ["Ana", SIN_ASESOR],
     "'Sin asignar' se clava al final aunque tenga 3 contra 1",
+  );
+
+  // Un contacto que SÍ es dueño de una oportunidad de la ventana no se cuenta dos
+  // veces: la segunda pasada es sólo para huérfanos.
+  const sinDobleConteo = buildFilterOptions(opportunities, [contacts[0]], ctx);
+  assert.deepEqual(
+    sinDobleConteo.advisors.map((o) => o.count),
+    [2, 1],
+    "c1 ya aportó por sus oportunidades; no suma otra vez como contacto",
   );
 
   // ── Etiqueta del PDF ──────────────────────────────────────────────────────

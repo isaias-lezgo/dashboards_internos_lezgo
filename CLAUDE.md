@@ -484,9 +484,18 @@ re-inlinees ninguna de estas reglas en un componente.
 - **Sin filtros activos, `applyDashboardFilters` devuelve los MISMOS arreglos por
   referencia**, para que los memos aguas abajo no se invaliden y el panel se comporte
   exactamente como antes de que la barra existiera.
-- Las opciones de los menús se derivan de las oportunidades filtradas **solo por fecha**.
+- Las opciones de los menús se derivan de los datasets filtrados **solo por fecha**.
   Recalcularlas sobre el resultado ya filtrado haría que elegir "Ganado" borrara del menú
-  a los demás status, sin forma de volver.
+  a los demás status, sin forma de volver. La regla que gobierna qué entra: **un valor
+  aparece si y solo si algún registro puede ser seleccionado por él**. Por eso
+  `buildFilterOptions` hace una segunda pasada sobre los contactos de la ventana **sin
+  oportunidad en ella** — el mismo conjunto que evalúa `orphanContactPasses`. Tallar solo
+  oportunidades rompía la equivalencia: en Lezgo Suite (952 contactos contra 22
+  oportunidades) el menú de Origen no ofrecía "tiktok", con 433 leads detrás, ni "Sin
+  asignar" con 913 contactos. Eran filtrables e inseleccionables a la vez. `count` es
+  entonces **unidades filtrables** — oportunidades + contactos huérfanos —, salvo en
+  Status, que sigue contando solo oportunidades por ser el único criterio que no existe a
+  nivel contacto.
 - Los filtros activos viajan al PDF como `filtersLabel` (`describeFilters`), aparte de
   `periodLabel`: un reporte recortado a un asesor que no lo declara miente, y el prompt
   de `analyze-report` lo necesita para no leer un subconjunto como si fuera el total.
