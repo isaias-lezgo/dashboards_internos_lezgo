@@ -127,6 +127,26 @@ export function resolveCampaignName(
   return opp.contactId ? pautaNameByContact?.get(opp.contactId) : undefined
 }
 
+// ── El headline de un anuncio ──────────────────────────────────────────────
+// Meta nombra cada pauta de un anuncio como `<headline> - <liga> - <id de adset>`,
+// así que una misma campaña llega partida en tantos nombres como creatividades y
+// ligas tenga: "Depa Desde $1,900,000 en Qro" son dos entradas distintas sólo
+// porque una trae una liga de Instagram y la otra una de fb.me.
+//
+// El corte exige las TRES partes, con una liga reconocible en medio y un id
+// numérico al final. Esa exigencia es lo que evita destrozar los nombres de
+// formulario, que también separan con guiones: "IW - CC - FF - Corregidora -
+// Enero 2026" no termina en un id, así que queda intacto. Medido sobre Condesa,
+// colapsa 52 nombres a 34 sin tocar un solo nombre de formulario.
+const AD_NAME_RE = /^(.+?)\s+-\s+\S*(?:https?:\/\/|fb\.me|wa\.me)\S*\s+-\s+\d{6,}$/i
+
+/** El headline de un nombre de pauta, o el nombre entero si no tiene ese formato. */
+export function campaignHeadline(name: string): string {
+  const trimmed = name.trim()
+  const m = AD_NAME_RE.exec(trimmed)
+  return (m ? m[1] : trimmed).trim()
+}
+
 // ── Familias de campaña ────────────────────────────────────────────────────
 // Nothing in GHL says which agency owns a campaign — not on the Pauta object,
 // not on the opportunity. The only signal is the naming convention: each agency

@@ -370,7 +370,9 @@ export interface GHLOpportunity {
   origin?: string;
   lastActivity?: string;
   lostReasonId?: string;
-  customFields?: Array<{ id: string; key?: string; value?: string; fieldValue?: string; fieldValueString?: string; type?: string }>;
+  // `fieldValueArray` is where multi-option opportunity fields actually arrive —
+  // NOT under fieldValue/fieldValueString like the single-valued ones.
+  customFields?: Array<{ id: string; key?: string; value?: string; fieldValue?: string; fieldValueString?: string; fieldValueArray?: string[]; type?: string }>;
   // Present only when fetched via /opportunities/search with getCalendarEvents=true
   calenders?: GHLOpportunityCalendarEntry[];
   // Embedded contact object returned by the search endpoint

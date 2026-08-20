@@ -61,7 +61,15 @@ function buildCampaignLabel(content?: string, campaign?: string): string | undef
 }
 
 function resolveCustomFields(
-  fields: Array<{ id: string; value?: unknown; fieldValue?: unknown; fieldValueString?: unknown }> | undefined,
+  fields:
+    | Array<{
+        id: string;
+        value?: unknown;
+        fieldValue?: unknown;
+        fieldValueString?: unknown;
+        fieldValueArray?: unknown;
+      }>
+    | undefined,
   map: Map<string, string>
 ): Record<string, string | string[]> {
   if (!fields?.length || !map.size) return {};
@@ -70,8 +78,13 @@ function resolveCustomFields(
     const name = map.get(f.id);
     if (!name) continue;
     // contacts use value; opportunities use fieldValue/fieldValueString.
-    // Multi-option/checkbox fields arrive as an array of strings.
-    const raw = f.fieldValue ?? f.fieldValueString ?? f.value;
+    // Multi-option/checkbox fields arrive as an array of strings — and on
+    // OPPORTUNITIES they arrive under their own key, `fieldValueArray`. Omitting
+    // it dropped every multi-option value an opportunity had: measured against
+    // production, 1,528 values in Plaza Bosques and 2,280 in Condesa, among them
+    // the opportunity-level "Origen de Lead", which is why that criterion always
+    // silently fell back to the contact's copy.
+    const raw = f.fieldValue ?? f.fieldValueArray ?? f.fieldValueString ?? f.value;
     if (raw === undefined || raw === null) continue;
     if (Array.isArray(raw)) {
       const arr = raw.map((v) => String(v)).filter((s) => s.trim() !== "");

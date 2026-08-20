@@ -9,6 +9,9 @@ import assert from "node:assert/strict";
 import type { Appointment, Contact, Message, Opportunity, Pauta, Task } from "../lib/types";
 import {
   EMPTY_FILTERS,
+  MONTSE_CAMPAIGN_HEADLINE,
+  NO_IDENTIFICADO,
+  SEGMENT_DEFS,
   SIN_ASESOR,
   SIN_ORIGEN,
   SIN_PAUTA,
@@ -16,13 +19,19 @@ import {
   buildFilterContext,
   buildFilterOptions,
   buildFirstPautaTipoByContact,
+  countActiveFilters,
   describeFilters,
   hasActiveFilters,
+  isMontseCampaign,
   opportunityPasses,
   originsOfOpportunity,
+  segmentOfContact,
+  segmentOfOpportunity,
   statusKey,
   type DashboardFilters,
+  type SegmentDef,
 } from "../lib/dashboard-filters";
+import { campaignHeadline } from "../lib/pauta";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -58,6 +67,13 @@ function opp(id: string, over: Partial<Opportunity> = {}): Opportunity {
 function pauta(id: string, contactId: string, tipo: string, createdAt: string): Pauta {
   return { id, tipo, nombrePauta: id, createdAt, contactId };
 }
+
+function namedPauta(id: string, contactId: string, nombrePauta: string, createdAt: string): Pauta {
+  return { id, tipo: "Mensaje WhatsApp", nombrePauta, createdAt, contactId };
+}
+
+const PLAZA: SegmentDef = SEGMENT_DEFS.find((d) => d.key === "plaza")!;
+const AGENCIA: SegmentDef = SEGMENT_DEFS.find((d) => d.key === "agencia")!;
 
 const EMPTY_DATA = {
   opportunities: [] as Opportunity[],
@@ -373,6 +389,208 @@ async function main() {
     "c1 ya aportó por sus oportunidades; no suma otra vez como contacto",
   );
 
+  // ── Criterios por segmento ────────────────────────────────────────────────
+  // El match del nombre del campo es exacto salvo mayúsculas: un match laxo haría
+  // que un campo ajeno de otra sub-cuenta inventara un criterio donde no existe.
+  assert.equal(
+    segmentOfOpportunity(opp("s1", { customFieldsResolved: { "bosques o meseta para dash": "Plaza Meseta" } }), PLAZA),
+    "Plaza Meseta",
+    "el nombre del campo no distingue mayúsculas",
+  );
+  assert.equal(
+    segmentOfOpportunity(opp("s2", { customFieldsResolved: { "Bosques o Meseta para el Dash": "Plaza Meseta" } }), PLAZA),
+    NO_IDENTIFICADO,
+    "un nombre parecido NO cuenta: el match es exacto, no por substring",
+  );
+
+  // Fallback al contacto, y el campo propio de la oportunidad ganándole.
+  const cMeseta = contact("c-meseta", {
+    customFieldsResolved: { "Plaza Bosques o Plaza Meseta": "Plaza Meseta" },
+  });
+  assert.equal(segmentOfOpportunity(opp("s3", { contactId: "c-meseta" }), PLAZA, cMeseta), "Plaza Meseta");
+  assert.equal(
+    segmentOfOpportunity(
+      opp("s4", { contactId: "c-meseta", customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Bosques" } }),
+      PLAZA,
+      cMeseta,
+    ),
+    "Plaza Bosques",
+    "el campo de la oportunidad gana sobre el del contacto",
+  );
+
+  // Sin señal cae en el cubo de residuo, que es una opción seleccionable.
+  assert.equal(segmentOfOpportunity(opp("s5"), PLAZA), NO_IDENTIFICADO);
+  assert.equal(segmentOfContact(contact("s6"), AGENCIA), NO_IDENTIFICADO);
+
+  // ── El criterio EXISTE sólo donde hay algo que separar ────────────────────
+  // Sin un solo valor real, `NO_IDENTIFICADO` no puede inventar un menú de un
+  // valor en los proyectos que nunca declararon el campo.
+  const ctxVacio = buildFilterContext([], [], []);
+  const sinCampo = buildFilterOptions([opp("n1"), opp("n2")], [contact("n3")], ctxVacio);
+  assert.deepEqual(sinCampo.segments.plaza, [], "sin el campo, el criterio no existe");
+  assert.deepEqual(sinCampo.segments.agencia, []);
+  assert.equal(sinCampo.montse, false, "sin agencia no se dibuja el toggle de Montse");
+
+  const conPlaza = buildFilterOptions(
+    [
+      opp("p-b", { customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Bosques" } }),
+      opp("p-m", { customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Meseta" } }),
+      opp("p-x"),
+      opp("p-y"),
+    ],
+    [],
+    ctxVacio,
+  );
+  assert.deepEqual(
+    conPlaza.segments.plaza.map((o) => o.value),
+    ["Plaza Bosques", "Plaza Meseta", NO_IDENTIFICADO],
+    "'No identificado' se clava al final aunque empate o gane en volumen",
+  );
+  assert.deepEqual(conPlaza.segments.plaza.map((o) => o.count), [1, 1, 2]);
+  assert.deepEqual(conPlaza.segments.agencia, [], "un criterio no arrastra al otro");
+  assert.equal(conPlaza.montse, false);
+
+  // El toggle se dibuja donde existe la agencia, no donde la campaña tenga leads:
+  // un control que aparece y desaparece al mover las fechas es peor que uno que a
+  // veces da cero.
+  const conAgencia = buildFilterOptions(
+    [opp("a-iw", { customFieldsResolved: { "IW o DOMUS": "IW" } })],
+    [],
+    ctxVacio,
+  );
+  assert.equal(conAgencia.montse, true, "el toggle sale con la agencia, sin exigir leads de Montse");
+
+  // El valor de un contacto huérfano llega al menú: si no, sería filtrable e
+  // inseleccionable a la vez — el mismo hueco que escondía 433 leads de TikTok.
+  const soloHuerfano = buildFilterOptions(
+    [],
+    [contact("h1", { customFieldsResolved: { "IW o DOMUS": "DOMUS" } })],
+    ctxVacio,
+  );
+  assert.deepEqual(soloHuerfano.segments.agencia.map((o) => o.value), ["DOMUS"]);
+
+  // ── La cascada del segmento ───────────────────────────────────────────────
+  const cBosques = contact("cb", { customFieldsResolved: { "Plaza Bosques o Plaza Meseta": "Plaza Bosques" } });
+  const cSinPlaza = contact("cs");
+  const oBosques = opp("ob", {
+    contactId: "cb",
+    customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Bosques" },
+  });
+  const oMeseta = opp("om", {
+    contactId: "cm",
+    customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Meseta" },
+  });
+  const plazaData = {
+    ...EMPTY_DATA,
+    opportunities: [oBosques, oMeseta],
+    contacts: [cBosques, cSinPlaza],
+  };
+  const ctxPlaza = buildFilterContext(plazaData.contacts, [], plazaData.opportunities);
+
+  const soloBosques = applyDashboardFilters(
+    plazaData,
+    filters({ segments: { plaza: ["Plaza Bosques"] } }),
+    ctxPlaza,
+  );
+  assert.deepEqual(soloBosques.opportunities.map((o) => o.id), ["ob"]);
+  assert.deepEqual(soloBosques.contacts.map((c) => c.id), ["cb"], "el huérfano sin plaza se cae");
+
+  // Y el huérfano SÍ entra por su propio campo cuando se selecciona su cubo.
+  const sinPlaza = applyDashboardFilters(
+    plazaData,
+    filters({ segments: { plaza: [NO_IDENTIFICADO] } }),
+    ctxPlaza,
+  );
+  assert.deepEqual(sinPlaza.opportunities.map((o) => o.id), []);
+  assert.deepEqual(sinPlaza.contacts.map((c) => c.id), ["cs"], "un contacto sin plaza es seleccionable");
+
+  // Un segmento con arreglo vacío no filtra nada, igual que los demás criterios.
+  assert.equal(hasActiveFilters(filters({ segments: { plaza: [] } })), false);
+  assert.equal(hasActiveFilters(filters({ segments: { plaza: ["Plaza Meseta"] } })), true);
+  assert.equal(countActiveFilters(filters({ segments: { plaza: ["Plaza Meseta"], agencia: ["IW"] } })), 2);
+
+  // Sin filtros activos siguen siendo los MISMOS arreglos por referencia.
+  const passthroughSeg = applyDashboardFilters(plazaData, filters({ segments: { plaza: [] } }), ctxPlaza);
+  assert.equal(passthroughSeg.opportunities, plazaData.opportunities);
+
+  // ── El headline de un anuncio ─────────────────────────────────────────────
+  // Meta parte una misma campaña en un nombre por creatividad; el corte los junta.
+  assert.equal(
+    campaignHeadline("Depa Desde $1,900,000 en Qro - https://fb.me/aJjfJmi1K - 120251583532750437"),
+    MONTSE_CAMPAIGN_HEADLINE,
+  );
+  assert.equal(
+    campaignHeadline("Depa Desde $1,900,000 en Qro - https://www.instagram.com/p/DcM5WesgZBG/ - 120251583532750437"),
+    MONTSE_CAMPAIGN_HEADLINE,
+    "la otra liga de la MISMA campaña colapsa al mismo headline",
+  );
+  // Lo que NO debe cortarse: los nombres de formulario también separan con
+  // guiones, pero no terminan en un id de adset.
+  assert.equal(
+    campaignHeadline("IW - CC - FF - Corregidora - Enero 2026"),
+    "IW - CC - FF - Corregidora - Enero 2026",
+    "un nombre de formulario queda intacto",
+  );
+  assert.equal(campaignHeadline("FORM | DOMUS | CONDESA"), "FORM | DOMUS | CONDESA");
+  assert.equal(campaignHeadline("facebook_formulario - 120249814624870104"), "facebook_formulario - 120249814624870104");
+
+  // ── El toggle de Montse ───────────────────────────────────────────────────
+  assert.ok(isMontseCampaign("Depa Desde $1,900,000 en Qro - https://fb.me/aJjfJmi1K - 120251583532750437"));
+  assert.ok(!isMontseCampaign("Depa Desde $1,860,000 en Qro - https://fb.me/4hvym5RJY - 120249679584950437"),
+    "la campaña anterior de DOMUS no es la de Montse");
+  assert.ok(!isMontseCampaign(undefined));
+
+  const cMontse = contact("c-montse");
+  const cOtra = contact("c-otra");
+  const oMontse = opp("o-montse", { contactId: "c-montse" });
+  const oOtra = opp("o-otra", { contactId: "c-otra" });
+  const pautasMontse = [
+    namedPauta("pm", "c-montse", `${MONTSE_CAMPAIGN_HEADLINE} - https://fb.me/aJjfJmi1K - 120251583532750437`, "2026-08-19T00:00:00Z"),
+    namedPauta("po", "c-otra", "Depa Desde $1,860,000 MXN - https://fb.me/6aF6r7h3I - 120249679584940437", "2026-06-25T00:00:00Z"),
+  ];
+  const montseData = {
+    ...EMPTY_DATA,
+    opportunities: [oMontse, oOtra],
+    contacts: [cMontse, cOtra],
+    pautas: pautasMontse,
+  };
+  const ctxMontse = buildFilterContext(montseData.contacts, pautasMontse, montseData.opportunities);
+
+  // Apagado no excluye nada: es un recorte, no una partición.
+  assert.equal(hasActiveFilters(filters({ montse: false })), false);
+  assert.equal(
+    applyDashboardFilters(montseData, filters({ montse: false }), ctxMontse).opportunities,
+    montseData.opportunities,
+  );
+
+  const soloMontse = applyDashboardFilters(montseData, filters({ montse: true }), ctxMontse);
+  assert.deepEqual(soloMontse.opportunities.map((o) => o.id), ["o-montse"]);
+  assert.deepEqual(soloMontse.contacts.map((c) => c.id), ["c-montse"]);
+  assert.deepEqual(soloMontse.pautas.map((p) => p.id), ["pm"], "la pauta de la otra campaña se cae");
+
+  // Un contacto SIN oportunidad se juzga por su propia primera pauta: sin esta
+  // rama, prender el toggle borraría a todo lead que aún no abrió oportunidad.
+  const huerfanoMontse = {
+    ...montseData,
+    opportunities: [] as Opportunity[],
+  };
+  assert.deepEqual(
+    applyDashboardFilters(huerfanoMontse, filters({ montse: true }), ctxMontse).contacts.map((c) => c.id),
+    ["c-montse"],
+    "el lead sin oportunidad entra por su propia pauta",
+  );
+
+  // El nombre de campaña propio de la oportunidad gana sobre el de la pauta: es
+  // el primer eslabón de resolveCampaignName y el toggle no puede saltárselo.
+  const oPropio = opp("o-propio", { contactId: "c-otra", campaignName: MONTSE_CAMPAIGN_HEADLINE });
+  assert.ok(
+    applyDashboardFilters(
+      { ...montseData, opportunities: [oPropio] },
+      filters({ montse: true }),
+      ctxMontse,
+    ).opportunities.length === 1,
+  );
+
   // ── Etiqueta del PDF ──────────────────────────────────────────────────────
   assert.equal(describeFilters(EMPTY_FILTERS), null);
   assert.equal(
@@ -383,6 +601,19 @@ async function main() {
     describeFilters(filters({ advisors: ["Ana", "Beto", "Cris"] })),
     "Asesor: Ana +2",
     "se resume en vez de crecer sin límite en la portada",
+  );
+
+  // Un reporte recortado a una plaza o a una agencia que no lo declara miente, y
+  // el prompt de analyze-report lo necesita para no leer un subconjunto como si
+  // fuera el total.
+  assert.equal(
+    describeFilters(filters({ segments: { plaza: ["Plaza Meseta"], agencia: ["DOMUS"] } })),
+    "Plaza: Plaza Meseta · Agencia: DOMUS",
+  );
+  assert.equal(describeFilters(filters({ montse: true })), "Campañas Montse");
+  assert.equal(
+    describeFilters(filters({ status: ["won"], segments: { agencia: ["DOMUS"] }, montse: true })),
+    "Status: Ganado · Agencia: DOMUS · Campañas Montse",
   );
 
   console.log("verify:filters — todas las aserciones pasaron ✅");

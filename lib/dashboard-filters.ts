@@ -1,7 +1,9 @@
 // Los filtros de atributo de la barra global (Status, Asesor, Origen de lead,
-// Tipo de pauta), compartidos por los paneles de Marketing y Ventas.
+// Tipo de pauta), más los criterios POR SEGMENTO que sólo existen en algunas
+// sub-cuentas (Plaza, Agencia) y el toggle de las campañas de Montse.
+// Compartidos por los paneles de Marketing y Ventas.
 //
-// Este módulo es puro y es la ÚNICA fuente de verdad de los cuatro criterios:
+// Este módulo es puro y es la ÚNICA fuente de verdad de todos los criterios:
 // cómo se resuelve el valor de cada uno sobre una oportunidad o un contacto, y
 // cómo el conjunto de oportunidades supervivientes arrastra al resto de los
 // datasets. No re-inlinees ninguna de estas reglas en un componente.
@@ -13,6 +15,7 @@
 
 import type { Appointment, Contact, Message, Opportunity, Pauta, Task } from "./types"
 import { isWonOpp } from "./opportunity-status"
+import { buildPautaNameByContact, campaignHeadline, resolveCampaignName } from "./pauta"
 
 // ── Vocabulario ────────────────────────────────────────────────────────────
 
@@ -35,14 +38,101 @@ export const STATUS_LABELS: Record<StatusKey, string> = {
 export const SIN_ASESOR = "Sin asignar"
 export const SIN_ORIGEN = "Sin origen"
 export const SIN_PAUTA = "Sin pauta"
+/** El cubo de residuo de los criterios por segmento. */
+export const NO_IDENTIFICADO = "No identificado"
 
-const RESIDUE_VALUES = new Set<string>([SIN_ASESOR, SIN_ORIGEN, SIN_PAUTA])
+const RESIDUE_VALUES = new Set<string>([SIN_ASESOR, SIN_ORIGEN, SIN_PAUTA, NO_IDENTIFICADO])
+
+// ── Criterios por segmento ─────────────────────────────────────────────────
+//
+// Status, Asesor, Origen y Tipo de pauta son universales: todo proyecto los
+// tiene. Estos NO. Plaza Bosques etiqueta cada oportunidad con la plaza a la que
+// pertenece, y Condesa con la agencia que la trajo; nadie más tiene ninguno de
+// los dos. En vez de plomear el id del proyecto hasta el componente, el criterio
+// se declara por NOMBRE DE CAMPO y su existencia la decide el dato: si ningún
+// registro del proyecto trae el campo, `buildFilterOptions` devuelve un menú
+// vacío y `MultiSelectFilter` no lo dibuja.
+//
+// Es la misma regla que ya gobierna las opciones — un valor aparece si y sólo si
+// algún registro puede ser seleccionado por él — subida un nivel, al criterio.
+//
+// La lista vive en código, no en un env var, para que cambiar quién ve qué corte
+// quede versionado y revisable en el diff. Lo mismo que lib/scopes.ts.
+
+export interface SegmentDef {
+  /** Llave estable: viaja en DashboardFilters.segments y no debe cambiar. */
+  key: string
+  /** Lo que lee el usuario en la barra. */
+  label: string
+  /**
+   * Nombres EXACTOS del campo personalizado (sin distinguir mayúsculas), en orden
+   * de preferencia. Se busca primero en la oportunidad y luego en el contacto, así
+   * que la lista puede mezclar campos de ambos niveles.
+   */
+  fieldNames: string[]
+}
+
+export const SEGMENT_DEFS: SegmentDef[] = [
+  {
+    key: "plaza",
+    label: "Plaza",
+    // Plaza Bosques / Meseta. El primero es de oportunidad y lo llamaron así
+    // literalmente para este panel (86% de cobertura); el segundo es su gemelo de
+    // contacto, que cubre 99.4% y además admite "Ambas". El tercero es un campo
+    // viejo que discrepa del segundo — sólo último recurso.
+    fieldNames: [
+      "Bosques o Meseta para Dash",
+      "Plaza Bosques o Plaza Meseta",
+      "Bosques o Meseta",
+    ],
+  },
+  {
+    key: "agencia",
+    label: "Agencia",
+    // Condesa Cimatario. Existe idéntico en oportunidad y en contacto.
+    fieldNames: ["IW o DOMUS"],
+  },
+]
+
+/**
+ * La campaña de Montse dentro de DOMUS (Condesa), como headline — sin la liga ni
+ * el id de adset, que cambian con cada creatividad.
+ *
+ * Es un dato de negocio, no una propiedad de los datos: nada en GHL marca esta
+ * campaña, y el headline ROTA cuando cambia el precio de lista. Predecesoras
+ * observadas, todas `IW o DOMUS = DOMUS` y sin traslape entre sí:
+ *   "Depa Desde $1,860,000 MXN"                    20 jun – 2 jul 2026
+ *   "Depa Desde $1,860,000 en Qro"                  3 jul – 14 jul 2026
+ *   "Depa en planta baja desde $3.2 MDP en Condesa" 18 jul – 19 ago 2026
+ * Cuando suba el precio otra vez hay que actualizar este valor a mano, o el
+ * toggle se quedará seleccionando una campaña muerta.
+ */
+export const MONTSE_CAMPAIGN_HEADLINE = "Depa Desde $1,900,000 en Qro"
+
+/**
+ * El segmento cuya presencia dibuja el toggle de Montse: su campaña vive dentro
+ * de una agencia, así que el control aparece donde aparece la agencia — hoy,
+ * Condesa.
+ *
+ * Deliberadamente NO se ata a que la campaña tenga leads en la ventana activa: un
+ * control que aparece y desaparece al mover las fechas es peor que uno que a
+ * veces da cero.
+ */
+const MONTSE_SEGMENT_KEY = "agencia"
 
 export interface DashboardFilters {
   status: StatusKey[]
   advisors: string[]
   origins: string[]
   pautaTypes: string[]
+  /**
+   * Los criterios por segmento, por `SegmentDef.key`. Llave ausente o arreglo
+   * vacío = "todos", igual que los demás. Es un Record y no cuatro campos fijos
+   * porque el conjunto de criterios depende del proyecto.
+   */
+  segments: Record<string, string[]>
+  /** Recorta a la campaña de Montse. Apagado no excluye nada. */
+  montse: boolean
 }
 
 /** Arreglo vacío = "todos". Ningún filtro activo deja los datasets intactos. */
@@ -51,6 +141,15 @@ export const EMPTY_FILTERS: DashboardFilters = {
   advisors: [],
   origins: [],
   pautaTypes: [],
+  segments: {},
+  montse: false,
+}
+
+/** Cuántos valores hay seleccionados entre TODOS los criterios por segmento. */
+function segmentSelectionCount(f: DashboardFilters): number {
+  let n = 0
+  for (const def of SEGMENT_DEFS) n += f.segments[def.key]?.length ?? 0
+  return n
 }
 
 export function hasActiveFilters(f: DashboardFilters): boolean {
@@ -58,12 +157,21 @@ export function hasActiveFilters(f: DashboardFilters): boolean {
     f.status.length > 0 ||
     f.advisors.length > 0 ||
     f.origins.length > 0 ||
-    f.pautaTypes.length > 0
+    f.pautaTypes.length > 0 ||
+    f.montse ||
+    segmentSelectionCount(f) > 0
   )
 }
 
 export function countActiveFilters(f: DashboardFilters): number {
-  return f.status.length + f.advisors.length + f.origins.length + f.pautaTypes.length
+  return (
+    f.status.length +
+    f.advisors.length +
+    f.origins.length +
+    f.pautaTypes.length +
+    segmentSelectionCount(f) +
+    (f.montse ? 1 : 0)
+  )
 }
 
 // ── Resolución de cada criterio ────────────────────────────────────────────
@@ -158,6 +266,80 @@ export function buildFirstPautaTipoByContact(pautas: Pauta[]): Map<string, strin
   return out
 }
 
+/**
+ * El valor de un criterio por segmento dentro de un blob de campos ya resueltos
+ * por nombre, o undefined si el campo no está.
+ *
+ * El match del nombre es EXACTO salvo mayúsculas y espacios de orilla, al revés
+ * que "Origen de lead", que busca por substring. La diferencia es deliberada: los
+ * nombres aquí son literales de una sub-cuenta concreta, y un match laxo haría
+ * que un campo ajeno con un nombre parecido inventara un criterio en otro
+ * proyecto — justo lo que la detección por presencia no debe permitir.
+ *
+ * Los campos son de opción única, así que un arreglo se lee por su primer valor.
+ */
+export function segmentValueIn(
+  resolved: Record<string, string | string[]> | undefined,
+  def: SegmentDef,
+): string | undefined {
+  if (!resolved) return undefined
+  for (const wanted of def.fieldNames) {
+    const target = wanted.toLowerCase()
+    for (const [name, val] of Object.entries(resolved)) {
+      if (name.trim().toLowerCase() !== target) continue
+      const raw = Array.isArray(val) ? val[0] : val
+      const sv = String(raw ?? "").trim()
+      if (sv) return sv
+    }
+  }
+  return undefined
+}
+
+/**
+ * Segmento de una oportunidad: su propio campo, con fallback al del contacto —
+ * el mismo orden que usa "Origen de lead". Nunca devuelve vacío: sin señal cae en
+ * NO_IDENTIFICADO, que es una opción seleccionable del menú y no un hueco.
+ */
+export function segmentOfOpportunity(
+  opp: Opportunity,
+  def: SegmentDef,
+  contact?: Contact,
+): string {
+  return (
+    segmentValueIn(opp.customFieldsResolved, def) ??
+    segmentValueIn(contact?.customFieldsResolved, def) ??
+    NO_IDENTIFICADO
+  )
+}
+
+export function segmentOfContact(c: Contact, def: SegmentDef): string {
+  return segmentValueIn(c.customFieldsResolved, def) ?? NO_IDENTIFICADO
+}
+
+/**
+ * ¿Este nombre de pauta es la campaña de Montse? Se compara por headline, así que
+ * las dos variantes de liga/id que Meta genera para la misma campaña cuentan
+ * como una sola.
+ */
+export function isMontseCampaign(name: string | undefined): boolean {
+  if (!name) return false
+  return campaignHeadline(name).toLowerCase() === MONTSE_CAMPAIGN_HEADLINE.toLowerCase()
+}
+
+export function isMontseOpportunity(opp: Opportunity, ctx: FilterContext): boolean {
+  return isMontseCampaign(resolveCampaignName(opp, ctx.pautaNameByContact))
+}
+
+/**
+ * Lectura a nivel contacto: el nombre de campaña de un contacto es el de su
+ * PRIMERA pauta, la misma fuente que ya usa `resolveCampaignName` como último
+ * eslabón de su cadena.
+ */
+export function isMontseContact(contactId: string | undefined, ctx: FilterContext): boolean {
+  if (!contactId) return false
+  return isMontseCampaign(ctx.pautaNameByContact.get(contactId))
+}
+
 // ── Contexto ───────────────────────────────────────────────────────────────
 
 /**
@@ -175,6 +357,12 @@ export interface FilterContext {
    * la ventana pero cuyas oportunidades no.
    */
   opportunitiesByContact: Map<string, Opportunity[]>
+  /**
+   * contactId → nombre de su primera pauta. Lo consume el toggle de Montse, tanto
+   * para clasificar oportunidades (como último eslabón de `resolveCampaignName`)
+   * como para clasificar contactos sin ella.
+   */
+  pautaNameByContact: Map<string, string>
 }
 
 export function buildFilterContext(
@@ -195,6 +383,7 @@ export function buildFilterContext(
     contactById,
     firstPautaTipoByContact: buildFirstPautaTipoByContact(allPautas),
     opportunitiesByContact,
+    pautaNameByContact: buildPautaNameByContact(allPautas),
   }
 }
 
@@ -224,6 +413,13 @@ export function opportunityPasses(
   if (f.pautaTypes.length && !f.pautaTypes.includes(pautaTipoOfContact(opp.contactId, ctx))) {
     return false
   }
+  for (const def of SEGMENT_DEFS) {
+    const selected = f.segments[def.key]
+    if (!selected?.length) continue
+    const contact = ctx.contactById.get(opp.contactId)
+    if (!selected.includes(segmentOfOpportunity(opp, def, contact))) return false
+  }
+  if (f.montse && !isMontseOpportunity(opp, ctx)) return false
   return true
 }
 
@@ -239,6 +435,10 @@ export function opportunityPasses(
  * Status es el único exclusivo de la oportunidad: un contacto que nunca tuvo una
  * no puede estar "Ganado", así que con ese filtro activo no pasa. Ahí el cero es
  * real.
+ *
+ * Los criterios por segmento y el de Montse también existen a nivel contacto — el
+ * campo de la plaza y el de la agencia son suyos antes que de la oportunidad, y el
+ * nombre de campaña sale de su primera pauta —, así que se evalúan igual.
  */
 export function orphanContactPasses(
   c: Contact,
@@ -249,6 +449,12 @@ export function orphanContactPasses(
   if (f.advisors.length && !f.advisors.includes(advisorOf(c))) return false
   if (f.origins.length && !anySelected(originsOfContact(c), f.origins)) return false
   if (f.pautaTypes.length && !f.pautaTypes.includes(pautaTipoOfContact(c.id, ctx))) return false
+  for (const def of SEGMENT_DEFS) {
+    const selected = f.segments[def.key]
+    if (!selected?.length) continue
+    if (!selected.includes(segmentOfContact(c, def))) return false
+  }
+  if (f.montse && !isMontseContact(c.id, ctx)) return false
   return true
 }
 
@@ -393,6 +599,13 @@ export interface FilterOptions {
   advisors: FilterOption[]
   origins: FilterOption[]
   pautaTypes: FilterOption[]
+  /**
+   * Por `SegmentDef.key`. Arreglo vacío = este proyecto no declaró el campo, y la
+   * barra no dibuja el criterio.
+   */
+  segments: Record<string, FilterOption[]>
+  /** Si la barra debe dibujar el toggle de las campañas de Montse. */
+  montse: boolean
 }
 
 function tally(counts: Map<string, number>, key: string) {
@@ -445,6 +658,23 @@ export function buildFilterOptions(
   const origins = new Map<string, number>()
   const pautaTypes = new Map<string, number>()
 
+  // Los criterios por segmento se tallan aparte porque además hay que decidir si
+  // EXISTEN. `NO_IDENTIFICADO` se le asigna a todo registro sin el campo, así que
+  // tallarlo sin más inventaría un menú de un solo valor en los cuatro proyectos
+  // que no declararon nada. Por eso se recuerda si se vio al menos un valor real:
+  // sin ninguno, el criterio no existe aquí y su menú sale vacío.
+  const segmentCounts = new Map<string, Map<string, number>>()
+  const segmentSeen = new Set<string>()
+  for (const def of SEGMENT_DEFS) segmentCounts.set(def.key, new Map())
+
+  const tallySegments = (value: (def: SegmentDef) => string) => {
+    for (const def of SEGMENT_DEFS) {
+      const v = value(def)
+      if (v !== NO_IDENTIFICADO) segmentSeen.add(def.key)
+      tally(segmentCounts.get(def.key)!, v)
+    }
+  }
+
   const owners = new Set<string>()
   for (const o of dateFilteredOpportunities) {
     if (o.contactId) owners.add(o.contactId)
@@ -452,6 +682,7 @@ export function buildFilterOptions(
     tally(advisors, advisorOf(o))
     for (const v of originsOfOpportunity(o, ctx.contactById.get(o.contactId))) tally(origins, v)
     tally(pautaTypes, pautaTipoOfContact(o.contactId, ctx))
+    tallySegments((def) => segmentOfOpportunity(o, def, ctx.contactById.get(o.contactId)))
   }
 
   // Segunda pasada: sólo los huérfanos. Un contacto que ya es dueño de una
@@ -461,6 +692,14 @@ export function buildFilterOptions(
     tally(advisors, advisorOf(c))
     for (const v of originsOfContact(c)) tally(origins, v)
     tally(pautaTypes, pautaTipoOfContact(c.id, ctx))
+    tallySegments((def) => segmentOfContact(c, def))
+  }
+
+  const segments: Record<string, FilterOption[]> = {}
+  for (const def of SEGMENT_DEFS) {
+    segments[def.key] = segmentSeen.has(def.key)
+      ? sortOptions(segmentCounts.get(def.key)!)
+      : []
   }
 
   return {
@@ -474,6 +713,8 @@ export function buildFilterOptions(
     advisors: sortOptions(advisors),
     origins: sortOptions(origins),
     pautaTypes: sortOptions(pautaTypes),
+    segments,
+    montse: segments[MONTSE_SEGMENT_KEY]?.length > 0,
   }
 }
 
@@ -495,6 +736,8 @@ export function describeFilters(f: DashboardFilters): string | null {
     summarize("Asesor", f.advisors),
     summarize("Origen", f.origins),
     summarize("Tipo de pauta", f.pautaTypes),
+    ...SEGMENT_DEFS.map((def) => summarize(def.label, f.segments[def.key] ?? [])),
+    f.montse ? "Campañas Montse" : null,
   ].filter(Boolean) as string[]
   return parts.length ? parts.join(" · ") : null
 }

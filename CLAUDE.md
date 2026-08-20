@@ -26,7 +26,8 @@ pnpm verify:context      # lib/ghl-context.ts — credential isolation across co
 pnpm verify:attachments  # lib/attachments.ts + lib/attachment-tools.ts — tabular parse/query/join
 pnpm verify:cf-merge     # lib/custom-field-merge.ts — fusión de opciones (no borra) + validación de valores
 pnpm verify:write-tools  # WRITE_TOOLS ⊇ definiciones + lista blanca de /api/ghl-write sin borrado
-pnpm verify:filters      # lib/dashboard-filters.ts — la cascada por contacto + los cuatro criterios
+pnpm verify:filters      # lib/dashboard-filters.ts — la cascada por contacto, los cuatro criterios
+                         #   universales, los criterios por segmento y el toggle de Montse
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
@@ -436,15 +437,17 @@ Both dashboards export a branded PDF via `components/dashboard/export-report-but
   1. **Fecha** — `lib/date-range.ts` (`DateFilter`, `resolveDateRange`,
      `filterByDateRange`) recorta cada dataset por su propia fecha, independientemente.
   2. **Atributos** — `lib/dashboard-filters.ts`: Status, Asesor, Origen de lead y Tipo
-     de pauta. Ver "Los filtros de atributo" abajo.
+     de pauta en todos los proyectos; más Plaza, Agencia y el toggle "Campañas Montse"
+     en los que declararon el campo. Ver "Los filtros de atributo" abajo.
 
   `components/dashboard/filter-bar.tsx` es la única barra sticky y compone las dos:
-  `date-range-filter.tsx` aporta solo sus controles (su `<section>` se movió a la barra)
-  y `multi-select-filter.tsx` es el popover genérico usado por los cuatro.
+  `date-range-filter.tsx` aporta solo sus controles (su `<section>` se movió a la barra),
+  `multi-select-filter.tsx` es el popover genérico de todos los criterios multivalor y
+  `toggle-filter.tsx` el interruptor de Montse.
 
 ### Los filtros de atributo
 
-`lib/dashboard-filters.ts` es la **única fuente de verdad** de los cuatro criterios. No
+`lib/dashboard-filters.ts` es la **única fuente de verdad** de todos los criterios. No
 re-inlinees ninguna de estas reglas en un componente.
 
 - **El modelo es una cascada por contacto.** Los filtros se evalúan una sola vez sobre
@@ -496,6 +499,35 @@ re-inlinees ninguna de estas reglas en un componente.
   entonces **unidades filtrables** — oportunidades + contactos huérfanos —, salvo en
   Status, que sigue contando solo oportunidades por ser el único criterio que no existe a
   nivel contacto.
+- **Los criterios por segmento existen sólo donde hay algo que separar.** Status, Asesor,
+  Origen y Tipo de pauta son universales; **Plaza** (Plaza Bosques / Meseta) y **Agencia**
+  (IW / DOMUS) no. `SEGMENT_DEFS` los declara por **nombre de campo personalizado** y la
+  presencia del dato decide: si ningún registro del proyecto trae el campo,
+  `buildFilterOptions` devuelve un menú vacío y `MultiSelectFilter` no lo dibuja. Es la
+  misma regla de las opciones —*un valor aparece si y sólo si algún registro puede ser
+  seleccionado por él*— subida un nivel, al criterio. Evita plomear el id del proyecto
+  hasta el componente, y una sub-cuenta nueva que declare el campo lo hereda sola.
+  - El match del nombre es **exacto** (salvo mayúsculas), al revés que "Origen de lead",
+    que va por substring. Un match laxo haría que un campo ajeno inventara un criterio en
+    otro proyecto, que es justo lo que la detección por presencia no debe permitir.
+  - Se lee el campo de la **oportunidad** con respaldo al del **contacto**, igual que
+    Origen. En Plaza Bosques ese respaldo importa: el campo de oportunidad cubre 86%, y
+    con el del contacto los sin identificar bajan de 355 a 12.
+  - `NO_IDENTIFICADO` ("No identificado") es su cubo de residuo y **es seleccionable**.
+    Sin él, los 611 leads de Condesa sin agencia serían filtrables e inseleccionables a
+    la vez — el bug que `buildFilterOptions` ya documenta.
+- **El toggle "Campañas Montse"** recorta a `MONTSE_CAMPAIGN_HEADLINE`. Nada en GHL marca
+  esa campaña: es un **dato de negocio** y el headline **rota cuando cambia el precio de
+  lista** (tres predecesoras documentadas en la constante). Hay que actualizarlo a mano.
+  - Compara por **headline** (`campaignHeadline` en `lib/pauta.ts`): Meta parte una misma
+    campaña en un nombre por creatividad (`<headline> - <liga> - <id de adset>`), y el
+    corte los junta. Exige las tres partes, con liga reconocible e id numérico final, para
+    no destrozar los nombres de formulario, que también separan con guiones.
+  - Se dibuja donde existe el segmento `agencia`, **no** donde la campaña tenga leads en la
+    ventana activa: un control que aparece y desaparece al mover las fechas es peor que uno
+    que a veces da cero.
+  - Un **reingreso** cuenta para la campaña que trajo al contacto la PRIMERA vez, no la que
+    lo trajo de vuelta — `buildPautaNameByContact`, la misma convención de "Tipo de pauta".
 - Los filtros activos viajan al PDF como `filtersLabel` (`describeFilters`), aparte de
   `periodLabel`: un reporte recortado a un asesor que no lo declara miente, y el prompt
   de `analyze-report` lo necesita para no leer un subconjunto como si fuera el total.
