@@ -13,14 +13,37 @@ export const PAID_SOCIAL_MEDIUMS = ["paid_social", "paidsocial", "paid social", 
 export const PAID_SEARCH_SOURCES = ["google", "bing", "yahoo", "baidu", "duckduckgo"]
 export const PAID_SEARCH_MEDIUMS = ["cpc", "ppc", "paid_search", "paidsearch", "google_ads", "sem"]
 
+// `source` y `adType` son texto libre: GHL guarda ahí lo mismo "facebook" que una
+// URL entera. Por eso el vocabulario se compara por TOKEN completo y no como
+// substring crudo — normalizamos ambos lados a palabras separadas por espacios y
+// buscamos la frase.
+//
+// El substring crudo se veía inofensivo y no lo era: "fb" cabe dentro de cualquier
+// digest hexadecimal, y las grabaciones de Callpicker llegan a `source` como
+// `…/getRecordAudio/CP.CU.268.7b293bf/be1496a52db6fe904d692160b179fadfba2dd2ab`.
+// Ese "fb" del hash inventó 79 oportunidades "de pauta" en los seis proyectos, sin
+// una sola pauta detrás — un error silencioso: el KPI simplemente estaba mal.
+// Medido sobre los 13,517 registros del roster, tokenizar quita esas 79 y **no
+// pierde ni gana ninguna otra**. Ver `pnpm verify:pauta`.
+//
+// Tokenizar también arregla el error opuesto, que el substring tenía de nacimiento:
+// "Paid  Social" con doble espacio no encontraba "paid social".
+function attributionTokens(value: string): string {
+  return ` ${value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `
+}
+
+function matchesAny(value: string | undefined, terms: string[]): boolean {
+  if (!value) return false
+  const haystack = attributionTokens(value)
+  return terms.some((t) => haystack.includes(attributionTokens(t)))
+}
+
 export function isPaidTraffic(opp: Opportunity): boolean {
-  const src = (opp.source ?? "").toLowerCase()
-  const med = (opp.adType ?? "").toLowerCase()
   return (
-    PAID_SOCIAL_SOURCES.some((s) => src.includes(s)) ||
-    PAID_SOCIAL_MEDIUMS.some((m) => med.includes(m)) ||
-    PAID_SEARCH_SOURCES.some((s) => src.includes(s)) ||
-    PAID_SEARCH_MEDIUMS.some((m) => med.includes(m))
+    matchesAny(opp.source, PAID_SOCIAL_SOURCES) ||
+    matchesAny(opp.adType, PAID_SOCIAL_MEDIUMS) ||
+    matchesAny(opp.source, PAID_SEARCH_SOURCES) ||
+    matchesAny(opp.adType, PAID_SEARCH_MEDIUMS)
   )
 }
 

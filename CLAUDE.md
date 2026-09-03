@@ -28,11 +28,14 @@ pnpm verify:cf-merge     # lib/custom-field-merge.ts — fusión de opciones (no
 pnpm verify:write-tools  # WRITE_TOOLS ⊇ definiciones + lista blanca de /api/ghl-write sin borrado
 pnpm verify:filters      # lib/dashboard-filters.ts — la cascada por contacto, los cuatro criterios
                          #   universales, los criterios por segmento y el toggle de Montse
+pnpm verify:pauta        # lib/pauta.ts — el vocabulario de tráfico pagado por token, no
+                         #   por substring (la regresión de Callpicker), y la unión de isDePauta
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
 **No test framework, and not adopting one.** Instead, the modules where a silent bug
-would be a *cross-project data leak* — or would strand a sync — have assertion scripts
+would be a *cross-project data leak*, a *wrong number on screen* — or would strand a
+sync — have assertion scripts
 under `scripts/verify-*.ts` (plain `node:assert/strict`, run via `tsx`). Run them after
 touching auth, the roster, los alcances, the credential context, or the limiter.
 Everything else is verified by driving the real app.
@@ -414,6 +417,16 @@ the marketing charts and the AI tools. Do not re-inline this logic anywhere.
   source/medium (`isPaidTraffic`). Neither signal alone is complete — Pauta records come
   from a Make scenario and don't always exist, and not every paid lead keeps its UTM — so
   each covers the other's gaps.
+- **`isPaidTraffic` compara por TOKEN completo, nunca por substring crudo.** `source` y
+  `adType` son texto libre y a veces traen una URL entera, así que un término corto del
+  vocabulario cabe dentro de cualquier cosa: "fb" vive dentro de cualquier digest
+  hexadecimal, y las grabaciones de Callpicker llegan a `source` como
+  `…/getRecordAudio/CP.CU.268.7b293bf/<hash>`. Eso inventaba 79 oportunidades "de pauta"
+  sin una sola pauta detrás, repartidas en los seis proyectos — el síntoma era un
+  "Oportunidades por pauta = 3" junto a "Pautas = 0". Ambos lados se normalizan a
+  palabras y se busca la frase; medido sobre los 13,517 registros del roster eso quita
+  exactamente esas 79 y no toca ninguna otra. `pnpm verify:pauta` fija los tres valores
+  reales de Callpicker como regresión. **No lo regreses a `.includes()`.**
 - `resolveCampaignName()` — an ordered fallback chain, since sub-accounts name the field
   differently ("Nombre pauta", "Nombre de la pauta", …) and some accounts have no
   attribution URL at all.
