@@ -20,3 +20,5 @@ node_modules/
 # Playwright MCP debug artifacts
 .playwright-mcp/
 .superpowers/
+.vercel
+.env*.local

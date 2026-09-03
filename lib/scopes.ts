@@ -38,9 +38,16 @@ export const SCOPES: readonly AccessScope[] = [
     passwordEnv: "DOMUS_ACCESS_PASSWORD",
     projectIds: ["condesa", "yconia", "plaza-bosques"],
   },
+  {
+    id: "iw",
+    label: "Proyectos IW",
+    passwordEnv: "IW_ACCESS_PASSWORD",
+    projectIds: ["condesa"],
+  },
 ];
 
 export const DOMUS_SCOPE_ID = "domus";
+export const IW_SCOPE_ID = "iw";
 
 // Fails closed: an unknown, empty or missing id resolves to null, which every caller
 // reads as "no access".

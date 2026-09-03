@@ -5,7 +5,7 @@
 // So the roster below mirrors production exactly, and every id a scope names is
 // checked against it.
 import assert from "node:assert/strict";
-import { SCOPES, DOMUS_SCOPE_ID, getScope, scopeAllows } from "../lib/scopes";
+import { SCOPES, DOMUS_SCOPE_ID, IW_SCOPE_ID, getScope, scopeAllows } from "../lib/scopes";
 import { parseClients } from "../lib/clients";
 
 const ROSTER = JSON.stringify([
@@ -56,6 +56,19 @@ for (const id of ["grand-center", "balvanera", "lezgo-suite"]) {
   assert.equal(scopeAllows(domus, id), false, `domus must NOT allow ${id}`);
 }
 
+// --- the iw scope: Condesa and nothing else
+const iw = getScope(IW_SCOPE_ID);
+if (!iw) throw new Error("the iw scope must exist");
+assert.deepEqual(
+  [...(iw.projectIds ?? [])],
+  ["condesa"],
+  "iw must be exactly Condesa Cimatario",
+);
+assert.equal(scopeAllows(iw, "condesa"), true, "iw must allow condesa");
+for (const id of ["yconia", "plaza-bosques", "grand-center", "balvanera", "lezgo-suite"]) {
+  assert.equal(scopeAllows(iw, id), false, `iw must NOT allow ${id}`);
+}
+
 // --- the full scope allows anything, including a project added to the roster later
 const all = getScope("all");
 if (!all) throw new Error("the all scope must exist");
@@ -70,5 +83,10 @@ assert.equal(getScope("no-existe"), null);
 assert.equal(getScope(""), null);
 assert.equal(getScope(null), null);
 assert.equal(getScope(undefined), null);
+
+// --- one password env var per scope. Sharing one would be a silent widening: the
+// login route keeps the LAST match, so the earlier scope could never be opened.
+const envs = SCOPES.map((s) => s.passwordEnv);
+assert.equal(new Set(envs).size, envs.length, "two scopes must not share a passwordEnv");
 
 console.log("✅ lib/scopes.ts — all assertions passed");

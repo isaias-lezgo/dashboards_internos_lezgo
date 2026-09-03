@@ -69,6 +69,9 @@ Required vars in `.env.local`:
   with it is limited to Condesa Cimatario, Yconia and Plaza Bosques / Meseta (see
   `lib/scopes.ts`). If it is not set, that scope cannot be opened by anyone and the
   deployment behaves as if it did not exist. Same `$` caveat as above.
+- `IW_ACCESS_PASSWORD` — the password of the **`iw`** scope. A session opened with it
+  is limited to Condesa Cimatario. Same "unset = the scope does not exist" and `$`
+  caveats as above.
 - `DASHBOARD_CLIENTS` — JSON array of projects, one per GHL sub-account:
   `[{"id","name","locationId","ghlToken"}]`. Use `pnpm add-client` to extend it safely.
 - `DASHBOARD_AUTH_SECRET` — random string used to HMAC-sign both session cookies
@@ -260,10 +263,17 @@ Two cookies, two questions:
 
 **Alcances (`lib/scopes.ts`).** Una contraseña no solo abre la puerta: decide **qué
 proyectos** puede abrir la sesión. Cada alcance declara su `passwordEnv` y su lista de
-`projectIds` (`null` = todo el roster). Hoy son dos: `all`
-(`DASHBOARD_ACCESS_PASSWORD`, todos) y `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
-Yconia y Plaza Bosques / Meseta). El id del alcance es el payload firmado de
-`dash_access`.
+`projectIds` (`null` = todo el roster). Hoy son tres: `all`
+(`DASHBOARD_ACCESS_PASSWORD`, todos), `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
+Yconia y Plaza Bosques / Meseta) e `iw` (`IW_ACCESS_PASSWORD`, solo Condesa). El id del
+alcance es el payload firmado de `dash_access`.
+
+Agregar un alcance es: una entrada en `SCOPES`, su contraseña en un env var nuevo
+(local **y** en Vercel), sus aserciones en `scripts/verify-scopes.ts` y —si quiere link
+propio— una página de tres líneas que renderice `<ScopeDoor scopeId={…} />`. El login
+recorre `SCOPES` solo, así que no hay nada que registrar ahí. **Dos alcances no pueden
+compartir `passwordEnv`**: el login se queda con el ÚLTIMO acierto, así que el primero
+quedaría inalcanzable — `verify:scopes` lo comprueba.
 
 `lib/scopes.ts` es puro y **no importa `lib/clients.ts`** — lo importa el middleware, y
 el roster arrastraría los tokens de GHL al bundle de Edge. Nombra proyectos por id, que
@@ -277,9 +287,12 @@ válida para siempre; lo que impide que una sesión Domus abra Grand Center es
 cosmético — necesario para no mandar proyectos ajenos al navegador, pero no es lo que
 protege. **Nunca relajes esa comprobación "solo para una ruta".**
 
-`/domus` (`app/domus/page.tsx`) es un link compartible que abre el picker filtrado a
-los proyectos Domus. Es una puerta, no una segunda app: el dashboard sigue viviendo en
-`/`. Abrirla con la contraseña general no concede nada extra. Cuando el middleware
+`/domus` y `/iw` son links compartibles que abren el picker filtrado a los proyectos de
+ese alcance. Sus páginas son cascarones: la lógica vive en `ScopeDoor`
+(`components/dashboard/scope-door.tsx`), una sola copia porque la intersección
+alcance-de-la-puerta ∩ alcance-de-la-sesión es sutil y dos copias escritas a mano
+acabarían divergiendo. Son puertas, no una segunda app: el dashboard sigue viviendo en
+`/`. Abrirlas con la contraseña general no concede nada extra. Cuando el middleware
 rechaza una **página** adjunta `?next=<pathname>`, y `app/login/page.tsx` vuelve ahí
 solo si es una ruta interna (`/` sí, `//host` y `/\host` no).
 
