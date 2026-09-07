@@ -20,7 +20,7 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart"
 import type { Opportunity, Contact, Pauta, Task, Call, Appointment, Pipeline } from "@/lib/types"
-import { Tag, FileText, Calendar, BarChart3, Layers, TrendingUp, TrendingDown, Facebook, Instagram, Copy, Check, ExternalLink } from "lucide-react"
+import { Tag, FileText, Calendar, BarChart3, Layers, TrendingUp, TrendingDown, Facebook, Instagram, Copy, Check, ExternalLink, ListFilter } from "lucide-react"
 import { PLATFORM_COLORS, PLATFORM_ORDER, platformLabel, originSignalText, hasGoogleAdsSignal, hasWebsiteSignal } from "@/lib/source-platform"
 import {
   isPaidTraffic,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/pauta"
 import { isWonOpp } from "@/lib/opportunity-status"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
+import { MultiSelectFilter, type MultiSelectOption } from "./multi-select-filter"
 import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
@@ -427,6 +428,127 @@ function paidGroupByHint(groupBy: PaidGroupBy): string {
   return "plataforma de origen"
 }
 
+// Plural para las notas de recorte ("3 de 47 campañas"). Existe aparte de
+// paidGroupByHint porque no todos pluralizan con una "s" al final: el de `url`
+// es "URLs", no "URL de atribucións".
+function paidGroupByPlural(groupBy: PaidGroupBy): string {
+  if (groupBy === "url") return "URLs"
+  if (groupBy === "id") return "IDs de anuncio"
+  if (groupBy === "campaign") return "campañas"
+  return "plataformas"
+}
+
+// Etiqueta del desplegable de claves. Sigue al GroupByToggle porque lo que el
+// menú lista es lo que la gráfica está apilando en ese momento.
+function paidGroupByFilterLabel(groupBy: PaidGroupBy): string {
+  if (groupBy === "url") return "URL"
+  if (groupBy === "id") return "ID"
+  if (groupBy === "campaign") return "Campaña"
+  return "Origen"
+}
+
+/**
+ * Las claves que la gráfica dibuja. La selección del menú manda sobre el slider
+ * — dos controles activos a la vez y nadie sabe por qué falta una barra —, y el
+ * orden por volumen se conserva en ambos caminos, así que los colores no bailan
+ * al filtrar.
+ */
+function visibleGroupKeys(allKeys: string[], selected: string[], topN: number): string[] {
+  if (selected.length > 0) {
+    const chosen = new Set(selected)
+    return allKeys.filter((k) => chosen.has(k))
+  }
+  return topN >= allKeys.length ? allKeys : allKeys.slice(0, Math.round(topN))
+}
+
+/**
+ * Las opciones del menú salen del ranking COMPLETO, antes de aplicar la
+ * selección: derivarlas del resultado ya filtrado borraría del menú lo no
+ * elegido y no habría forma de volver. Es la misma regla que documenta
+ * buildFilterOptions en lib/dashboard-filters.ts.
+ */
+function groupKeyOptions(entries: [string, number][], groupBy: PaidGroupBy): MultiSelectOption[] {
+  const cut = campaignPrefixCut(entries.map(([k]) => k), groupBy)
+  return entries.map(([value, count]) => ({
+    value,
+    // Sin el recorte a 30 caracteres de paidGroupByLabel: el popover ya trunca
+    // con CSS y conserva el nombre crudo en el title al pasar el cursor.
+    label:
+      groupBy === "campaign"
+        ? ((cut > 0 ? value.slice(cut) : value).trim() || value)
+        : paidGroupByLabel(value, groupBy, cut),
+    count,
+  }))
+}
+
+// El segmento del ChartHint (y del PDF) que declara cuánto del ranking se ve.
+function groupScopeNote(
+  selected: string[],
+  topN: number,
+  total: number,
+  groupBy: PaidGroupBy
+): string {
+  if (selected.length > 0) return `${selected.length} de ${total} ${paidGroupByPlural(groupBy)}`
+  return topN >= total ? "todo" : `top ${topN}`
+}
+
+// La nota de recorte del PDF: vacía cuando no hay selección, porque el top N ya
+// se lee en el propio título de la sección ("top 12 de 47").
+function keyNote(selected: string[], topN: number, total: number, groupBy: PaidGroupBy): string {
+  return selected.length > 0 ? groupScopeNote(selected, topN, total, groupBy) : ""
+}
+
+function groupSelectionEmpty(groupBy: PaidGroupBy): string {
+  return `Sin datos para la selección de ${paidGroupByPlural(groupBy)}.`
+}
+
+/**
+ * El desplegable multi-selección de una tarjeta: lista toda la dimensión activa
+ * con su volumen y decide qué claves se dibujan. Con una sola clave posible no
+ * se dibuja — no hay nada que elegir.
+ */
+function GroupKeyFilter({
+  groupBy,
+  options,
+  selected,
+  onChange,
+}: {
+  groupBy: PaidGroupBy
+  options: MultiSelectOption[]
+  selected: string[]
+  onChange: (values: string[]) => void
+}) {
+  if (options.length < 2) return null
+  return (
+    <span onClick={(e) => e.stopPropagation()}>
+      <MultiSelectFilter
+        label={paidGroupByFilterLabel(groupBy)}
+        icon={ListFilter}
+        options={options}
+        selected={selected}
+        onChange={onChange}
+        searchable
+        size="compact"
+      />
+    </span>
+  )
+}
+
+/**
+ * El groupBy de una tarjeta junto a su selección de claves. Cambiar de
+ * dimensión limpia la selección: las claves de URL no son las de campaña, así
+ * que arrastrarla dejaría un filtro activo que no selecciona nada.
+ */
+function useGroupKeyFilter(initial: PaidGroupBy) {
+  const [groupBy, setGroupByState] = useState<PaidGroupBy>(initial)
+  const [selected, setSelected] = useState<string[]>([])
+  const setGroupBy = useCallback((v: PaidGroupBy) => {
+    setGroupByState(v)
+    setSelected([])
+  }, [])
+  return { groupBy, setGroupBy, selected, setSelected }
+}
+
 type OriginGroupBy = "platform" | "id" | "url"
 
 const ORIGIN_GROUP_OPTIONS: { value: OriginGroupBy; label: string; column: string }[] = [
@@ -457,11 +579,18 @@ function OriginGroupByToggle({ value, onChange }: { value: OriginGroupBy; onChan
   )
 }
 
-function TopNSlider({ value, max, onChange }: { value: number; max: number; onChange: (n: number) => void }) {
+// `disabled` es lo que se enciende cuando el desplegable de claves tiene una
+// selección: ese menú manda, y un slider que sigue moviéndose sin efecto es peor
+// que uno apagado.
+function TopNSlider({ value, max, onChange, disabled = false }: { value: number; max: number; onChange: (n: number) => void; disabled?: boolean }) {
   const effectiveValue = Math.min(value, max)
   const isAll = effectiveValue >= max
   return (
-    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+    <div
+      className={`flex items-center gap-1.5 ${disabled ? "opacity-40" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      title={disabled ? "El filtro del menú manda sobre el top N" : undefined}
+    >
       <span className="text-[10px] font-medium text-muted-foreground tabular-nums w-12 text-right shrink-0">
         {isAll ? "Todo" : `Top ${effectiveValue}`}
       </span>
@@ -470,8 +599,9 @@ function TopNSlider({ value, max, onChange }: { value: number; max: number; onCh
         min={1}
         max={max || 1}
         value={effectiveValue}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1 w-20 cursor-pointer accent-primary"
+        className="h-1 w-20 cursor-pointer accent-primary disabled:cursor-not-allowed"
       />
     </div>
   )
@@ -492,10 +622,10 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   const rankingPautas = allPautas ?? pautas
   const [drill, setDrill] = useState<DrillState>(DRILL_CLOSED)
   const [hoveredAdType, setHoveredAdType] = useState<number | undefined>(undefined)
-  const [apptGroupBy, setApptGroupBy] = useState<PaidGroupBy>("campaign")
-  const [wonGroupBy, setWonGroupBy] = useState<PaidGroupBy>("campaign")
-  const [stageGroupBy, setStageGroupBy] = useState<PaidGroupBy>("campaign")
-  const [lostGroupBy, setLostGroupBy] = useState<PaidGroupBy>("campaign")
+  const { groupBy: apptGroupBy, setGroupBy: setApptGroupBy, selected: apptKeys, setSelected: setApptKeys } = useGroupKeyFilter("campaign")
+  const { groupBy: wonGroupBy, setGroupBy: setWonGroupBy, selected: wonKeys, setSelected: setWonKeys } = useGroupKeyFilter("campaign")
+  const { groupBy: stageGroupBy, setGroupBy: setStageGroupBy, selected: stageKeys, setSelected: setStageKeys } = useGroupKeyFilter("campaign")
+  const { groupBy: lostGroupBy, setGroupBy: setLostGroupBy, selected: lostKeys, setSelected: setLostKeys } = useGroupKeyFilter("campaign")
   const [originGroupBy, setOriginGroupBy] = useState<OriginGroupBy>("platform")
   const [onlyReingresos, setOnlyReingresos] = useState(false)
   const [stageIncludeLost, setStageIncludeLost] = useState(true)
@@ -691,7 +821,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   }, [pautas, contactById, pautaUniqueLeads, isUniqueLead])
 
   // Attribution (URL or Ad ID) × Etapa del Pipeline (stacked bar: X = stage, Y = opp count, color = attribution key).
-  const { pautaByStageRows, pautaByStageKeys, pautaByStageKeyCount } = useMemo(() => {
+  const { pautaByStageRows, pautaByStageKeys, pautaByStageKeyCount, pautaByStageOptions } = useMemo(() => {
     const totals = new Map<string, number>()
     const perStage = new Map<string, Map<string, number>>()
     for (const stage of stageOrder) perStage.set(stage, new Map())
@@ -707,11 +837,10 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       totals.set(rawKey, (totals.get(rawKey) ?? 0) + 1)
     }
 
-    const allKeys = Array.from(totals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name)
+    const allEntries = Array.from(totals.entries()).sort((a, b) => b[1] - a[1])
+    const allKeys = allEntries.map(([name]) => name)
     const pautaByStageKeyCount = allKeys.length
-    const keys = stageTopN >= pautaByStageKeyCount ? allKeys : allKeys.slice(0, Math.round(stageTopN))
+    const keys = visibleGroupKeys(allKeys, stageKeys, stageTopN)
 
     const rows = stageOrder
       .map((stage) => {
@@ -722,8 +851,13 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       })
       .filter((row) => keys.some((k) => (row[k] as number) > 0))
 
-    return { pautaByStageRows: rows, pautaByStageKeys: keys, pautaByStageKeyCount }
-  }, [opportunities, stageOrder, stageGroupBy, stageTopN, stageIncludeLost, isDePauta, pautaNameByContact])
+    return {
+      pautaByStageRows: rows,
+      pautaByStageKeys: keys,
+      pautaByStageKeyCount,
+      pautaByStageOptions: groupKeyOptions(allEntries, stageGroupBy),
+    }
+  }, [opportunities, stageOrder, stageGroupBy, stageTopN, stageKeys, stageIncludeLost, isDePauta, pautaNameByContact])
 
   const stageCampaignCut = campaignPrefixCut(pautaByStageKeys, stageGroupBy)
   const pautaByStageConfig = Object.fromEntries(
@@ -743,7 +877,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   // toggle). Reasons stay sorted heaviest-first; segment keys are ranked by total
   // volume so colors are stable and the legend reads top-down. `total` on each row
   // preserves the per-reason count for the PDF report (which has no toggle).
-  const { lostByReasonRows, lostByReasonKeys, lostByReasonKeyCount } = useMemo(() => {
+  const { lostByReasonRows, lostByReasonKeys, lostByReasonKeyCount, lostByReasonOptions } = useMemo(() => {
     const reasonTotals = new Map<string, number>()
     const perReason = new Map<string, Map<string, number>>()
     const segTotals = new Map<string, number>()
@@ -761,25 +895,41 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       segTotals.set(segKey, (segTotals.get(segKey) ?? 0) + 1)
     }
 
-    const allKeys = Array.from(segTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name)
+    const allEntries = Array.from(segTotals.entries()).sort((a, b) => b[1] - a[1])
+    const allKeys = allEntries.map(([name]) => name)
     const keyCount = allKeys.length
-    const keys = lostTopN >= keyCount ? allKeys : allKeys.slice(0, Math.round(lostTopN))
+    const keys = visibleGroupKeys(allKeys, lostKeys, lostTopN)
 
-    const rows = Array.from(reasonTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([reason, total]) => {
+    // `total` es la suma de los segmentos DIBUJADOS, no la de la razón completa.
+    // Alimenta la etiqueta al final de cada barra, el badge de la tarjeta y la
+    // serie del PDF, así que con el menú o el slider recortando claves un total
+    // que ignorara el recorte etiquetaría una barra corta con una cifra del
+    // proyecto entero. El orden sale del mismo número, para que las razones se
+    // sigan leyendo de mayor a menor bajo el recorte.
+    const rows = Array.from(reasonTotals.keys())
+      .map((reason) => {
         const segMap = perReason.get(reason)!
-        const row: Record<string, string | number> = { reason, total }
-        for (const k of keys) row[k] = segMap.get(k) ?? 0
+        const row: Record<string, string | number> = { reason, total: 0 }
+        let shown = 0
+        for (const k of keys) {
+          const v = segMap.get(k) ?? 0
+          row[k] = v
+          shown += v
+        }
+        row.total = shown
         return row
       })
-      // Drop reasons whose entire volume fell outside the shown segment keys.
-      .filter((row) => keys.some((k) => (row[k] as number) > 0))
+      // Fuera las razones cuyo volumen entero cayó fuera de las claves visibles.
+      .filter((row) => (row.total as number) > 0)
+      .sort((a, b) => (b.total as number) - (a.total as number))
 
-    return { lostByReasonRows: rows, lostByReasonKeys: keys, lostByReasonKeyCount: keyCount }
-  }, [opportunities, isDePauta, lostGroupBy, lostTopN, pautaNameByContact])
+    return {
+      lostByReasonRows: rows,
+      lostByReasonKeys: keys,
+      lostByReasonKeyCount: keyCount,
+      lostByReasonOptions: groupKeyOptions(allEntries, lostGroupBy),
+    }
+  }, [opportunities, isDePauta, lostGroupBy, lostTopN, lostKeys, pautaNameByContact])
 
   const lostCampaignCut = campaignPrefixCut(lostByReasonKeys, lostGroupBy)
   const lostByReasonConfig = Object.fromEntries(
@@ -951,7 +1101,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   // Leads with an appointment, counted per attribution key. The pipeline stage is a
   // separate story (its own "por Etapa del Pipeline" chart), so it stays out of this
   // bar and lives in the drill-down. One solid bar per key, sorted heaviest-first.
-  const { paidTrafficWithAppt, apptKeyCount } = useMemo(() => {
+  const { paidTrafficWithAppt, apptKeyCount, apptOptions } = useMemo(() => {
     const filteredAppts = apptStatusFilter === "all"
       ? appointments
       : appointments.filter((a) => a.status === apptStatusFilter)
@@ -967,7 +1117,8 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     const allEntries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
     const apptKeyCount = allEntries.length
     const prefixCut = campaignPrefixCut(allEntries.map(([k]) => k), apptGroupBy)
-    const sliced = apptTopN >= apptKeyCount ? allEntries : allEntries.slice(0, Math.round(apptTopN))
+    const shown = new Set(visibleGroupKeys(allEntries.map(([k]) => k), apptKeys, apptTopN))
+    const sliced = allEntries.filter(([k]) => shown.has(k))
     return {
       paidTrafficWithAppt: sliced.map(([rawKey, count]) => ({
         rawKey,
@@ -975,13 +1126,14 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         count,
       })),
       apptKeyCount,
+      apptOptions: groupKeyOptions(allEntries, apptGroupBy),
     }
-  }, [opportunities, appointments, apptGroupBy, apptTopN, apptStatusFilter, isDePauta, pautaNameByContact])
+  }, [opportunities, appointments, apptGroupBy, apptTopN, apptKeys, apptStatusFilter, isDePauta, pautaNameByContact])
 
   const apptChartConfig = { count: { label: "Leads con cita", color: BRAND_AMBER } }
 
   // Panel 4b — Won deals from paid traffic, grouped by URL or Ad ID
-  const { wonPaidTraffic, wonKeyCount } = useMemo(() => {
+  const { wonPaidTraffic, wonKeyCount, wonOptions } = useMemo(() => {
     const counts = new Map<string, { count: number; value: number }>()
     for (const o of opportunities) {
       if (!isDePauta(o) || !isWonOpp(o)) continue
@@ -993,7 +1145,8 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     const allEntries = Array.from(counts.entries()).sort((a, b) => b[1].count - a[1].count)
     const wonKeyCount = allEntries.length
     const prefixCut = campaignPrefixCut(allEntries.map(([k]) => k), wonGroupBy)
-    const sliced = wonTopN >= wonKeyCount ? allEntries : allEntries.slice(0, Math.round(wonTopN))
+    const shown = new Set(visibleGroupKeys(allEntries.map(([k]) => k), wonKeys, wonTopN))
+    const sliced = allEntries.filter(([k]) => shown.has(k))
     return {
       wonPaidTraffic: sliced.map(([rawKey, { count, value }]) => ({
         rawKey,
@@ -1002,8 +1155,12 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         value,
       })),
       wonKeyCount,
+      wonOptions: groupKeyOptions(
+        allEntries.map(([k, v]) => [k, v.count] as [string, number]),
+        wonGroupBy
+      ),
     }
-  }, [opportunities, wonGroupBy, wonTopN, isDePauta, pautaNameByContact])
+  }, [opportunities, wonGroupBy, wonTopN, wonKeys, isDePauta, pautaNameByContact])
 
   // Won opportunities: bars by the standardized "Origen de lead" platform
   // (full PLATFORM_ORDER on the x-axis), stacked by Fuente de creación segments
@@ -1098,15 +1255,25 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       })
     }
 
+    // El desplegable de claves recorta lo que la gráfica dibuja, y ese recorte
+    // viaja al PDF: un reporte reducido a 3 de 47 campañas que no lo declara
+    // miente por omisión, igual que el filtersLabel de la barra global. El
+    // título lo lleva corto y la explicación lo dice en prosa, que es lo que lee
+    // el prompt de analyze-report para no tomar el subconjunto por el total.
+    const stageKeyNote = keyNote(stageKeys, stageTopN, pautaByStageKeyCount, stageGroupBy)
+    const lostKeyNote = keyNote(lostKeys, lostTopN, lostByReasonKeyCount, lostGroupBy)
+    const apptKeyNote = keyNote(apptKeys, apptTopN, apptKeyCount, apptGroupBy)
+    const wonKeyNote = keyNote(wonKeys, wonTopN, wonKeyCount, wonGroupBy)
+
     if (pautaByStageRows.length > 0) {
       sections.push({
         id: "pauta-etapa",
         title: "Oportunidades de pauta por etapa del pipeline",
         explanation:
-          `Dónde están hoy las oportunidades que vienen de pauta dentro del pipeline de ventas${stageIncludeLost ? "" : " (sin contar las perdidas)"}, con cada barra dividida por ${paidGroupByNoun(stageGroupBy)}. Muestra qué tan profundo avanza el tráfico pagado en el embudo y qué campañas sostienen cada etapa.`,
+          `Dónde están hoy las oportunidades que vienen de pauta dentro del pipeline de ventas${stageIncludeLost ? "" : " (sin contar las perdidas)"}, con cada barra dividida por ${paidGroupByNoun(stageGroupBy)}. Muestra qué tan profundo avanza el tráfico pagado en el embudo y qué campañas sostienen cada etapa.${stageKeyNote ? ` La gráfica está recortada a ${stageKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
         blocks: [{
           t: "chart", type: "bar", stacked: true, valueLabel: "Oportunidades",
-          title: `Oportunidades de pauta por etapa${stageIncludeLost ? "" : " (sin perdidas)"} (total: ${pautaByStageTotal})`,
+          title: `Oportunidades de pauta por etapa${stageIncludeLost ? "" : " (sin perdidas)"} (total: ${pautaByStageTotal})${stageKeyNote ? ` · sólo ${stageKeyNote}` : ""}`,
           categories: pautaByStageRows.map((r) => String(r.stage)),
           series: pautaByStageKeys.map((k) => ({
             name: pautaByStageConfig[k]?.label ?? k,
@@ -1121,10 +1288,10 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         id: "perdidas",
         title: "Oportunidades perdidas por razón de pérdida",
         explanation:
-          "Las razones registradas al marcar como perdida una oportunidad de pauta, ordenadas de mayor a menor. Identifica los motivos principales por los que se cae el tráfico pagado.",
+          `Las razones registradas al marcar como perdida una oportunidad de pauta, ordenadas de mayor a menor. Identifica los motivos principales por los que se cae el tráfico pagado.${lostKeyNote ? ` La gráfica está recortada a ${lostKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
         blocks: [{
           t: "chart", type: "bar", orientation: "h", valueLabel: "Oportunidades",
-          title: `Perdidas por razón (total: ${lostByReasonTotal})`,
+          title: `Perdidas por razón (total: ${lostByReasonTotal})${lostKeyNote ? ` · sólo ${lostKeyNote}` : ""}`,
           // Rows already sorted heaviest-first — the PDF has no hover, so ordering carries the ranking.
           categories: lostByReasonRows.map((r) => r.reason as string),
           series: [{
@@ -1171,10 +1338,10 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         id: "citas-pauta",
         title: "Citas por pauta",
         explanation:
-          `Leads de tráfico pagado que llegaron a agendar al menos una cita, agrupados por ${paidGroupByNoun(apptGroupBy)} y ordenados de mayor a menor${apptStatusFilter === "all" ? "" : ` (citas con estatus "${apptStatusFilter}")`}. Mide qué campañas generan leads que avanzan a una reunión real.`,
+          `Leads de tráfico pagado que llegaron a agendar al menos una cita, agrupados por ${paidGroupByNoun(apptGroupBy)} y ordenados de mayor a menor${apptStatusFilter === "all" ? "" : ` (citas con estatus "${apptStatusFilter}")`}. Mide qué campañas generan leads que avanzan a una reunión real.${apptKeyNote ? ` La gráfica está recortada a ${apptKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
         blocks: [{
           t: "chart", type: "bar", orientation: "h", valueLabel: "Leads con cita",
-          title: `Citas por pauta (top ${Math.min(12, paidTrafficWithAppt.length)} de ${apptKeyCount})`,
+          title: `Citas por pauta (top ${Math.min(12, paidTrafficWithAppt.length)} de ${apptKeyCount})${apptKeyNote ? ` · sólo ${apptKeyNote}` : ""}`,
           categories: paidTrafficWithAppt.slice(0, 12).map((r) => String(r.label)),
           series: [{
             name: "Leads con cita",
@@ -1189,11 +1356,11 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         id: "ganadas-pauta",
         title: "Oportunidades ganadas por pauta",
         explanation:
-          `Ventas cerradas que se originaron en tráfico pagado, agrupadas por ${paidGroupByNoun(wonGroupBy)}. Es el cierre del ciclo: qué campañas terminan en ingresos. La tabla añade el valor monetario de cada grupo.`,
+          `Ventas cerradas que se originaron en tráfico pagado, agrupadas por ${paidGroupByNoun(wonGroupBy)}. Es el cierre del ciclo: qué campañas terminan en ingresos. La tabla añade el valor monetario de cada grupo.${wonKeyNote ? ` La gráfica está recortada a ${wonKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
         blocks: [
           {
             t: "chart", type: "bar", valueLabel: "Ganadas",
-            title: `Ganadas de tráfico pagado (top ${Math.min(12, wonPaidTraffic.length)} de ${wonKeyCount})`,
+            title: `Ganadas de tráfico pagado (top ${Math.min(12, wonPaidTraffic.length)} de ${wonKeyCount})${wonKeyNote ? ` · sólo ${wonKeyNote}` : ""}`,
             series: wonPaidTraffic.slice(0, 12).map((r) => ({ label: r.label, value: r.count })),
           },
           {
@@ -1278,6 +1445,8 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     opportunities.length, pautaOppCount, pautas.length, reingresoCount, periodLabel, filtersLabel,
     locationName, originGroupBy, stageIncludeLost, stageGroupBy, pautaByStageConfig,
     apptGroupBy, apptStatusFilter, wonGroupBy,
+    stageKeys, stageTopN, lostKeys, lostTopN, lostByReasonKeyCount,
+    apptKeys, apptTopN, wonKeys, wonTopN,
   ])
 
   return (
@@ -1651,14 +1820,18 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                   <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white shadow transition-transform duration-200 ${stageIncludeLost ? "translate-x-2.5" : "translate-x-0.5"}`} />
                 </span>
               </button>
-              <TopNSlider value={stageTopN} max={pautaByStageKeyCount} onChange={setStageTopN} />
+              <GroupKeyFilter groupBy={stageGroupBy} options={pautaByStageOptions} selected={stageKeys} onChange={setStageKeys} />
+              <TopNSlider value={stageTopN} max={pautaByStageKeyCount} onChange={setStageTopN} disabled={stageKeys.length > 0} />
               <GroupByToggle value={stageGroupBy} onChange={setStageGroupBy} />
             </div>
           }
         />
         <ChartCardContent>
           {pautaByStageKeys.length === 0 ? (
-            <ChartEmpty message="Sin oportunidades con datos de atribución." height={300} />
+            <ChartEmpty
+              message={stageKeys.length > 0 ? groupSelectionEmpty(stageGroupBy) : "Sin oportunidades con datos de atribución."}
+              height={300}
+            />
           ) : (
             <>
               <ChartContainer config={pautaByStageConfig} className="aspect-auto" style={{ height: 480 }}>
@@ -1721,7 +1894,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                 </ResponsiveContainer>
               </ChartContainer>
               <ChartHint>
-                {`Apilado por ${paidGroupByHint(stageGroupBy)} · ${stageTopN >= pautaByStageKeyCount ? "todo" : `top ${stageTopN}`} · haz clic en un segmento para ver las oportunidades`}
+                {`Apilado por ${paidGroupByHint(stageGroupBy)} · ${groupScopeNote(stageKeys, stageTopN, pautaByStageKeyCount, stageGroupBy)} · haz clic en un segmento para ver las oportunidades`}
               </ChartHint>
             </>
           )}
@@ -1735,14 +1908,18 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
           icon={TrendingDown}
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <TopNSlider value={lostTopN} max={lostByReasonKeyCount} onChange={setLostTopN} />
+              <GroupKeyFilter groupBy={lostGroupBy} options={lostByReasonOptions} selected={lostKeys} onChange={setLostKeys} />
+              <TopNSlider value={lostTopN} max={lostByReasonKeyCount} onChange={setLostTopN} disabled={lostKeys.length > 0} />
               <GroupByToggle value={lostGroupBy} onChange={setLostGroupBy} options={CAMPAIGN_ORIGIN_OPTIONS} />
             </div>
           }
         />
         <ChartCardContent>
           {lostByReasonRows.length === 0 ? (
-            <ChartEmpty message="Sin oportunidades perdidas de pauta en el periodo." height={300} />
+            <ChartEmpty
+              message={lostKeys.length > 0 ? groupSelectionEmpty(lostGroupBy) : "Sin oportunidades perdidas de pauta en el periodo."}
+              height={300}
+            />
           ) : (
             <>
               <ChartContainer
@@ -1816,7 +1993,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                 </ResponsiveContainer>
               </ChartContainer>
               <ChartHint>
-                {`Cada barra es una razón de pérdida, apilada por ${paidGroupByHint(lostGroupBy)} · ${lostTopN >= lostByReasonKeyCount ? "todo" : `top ${lostTopN}`} · haz clic en un segmento para ver las oportunidades`}
+                {`Cada barra es una razón de pérdida, apilada por ${paidGroupByHint(lostGroupBy)} · ${groupScopeNote(lostKeys, lostTopN, lostByReasonKeyCount, lostGroupBy)} · haz clic en un segmento para ver las oportunidades`}
               </ChartHint>
             </>
           )}
@@ -2020,14 +2197,18 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                     </SelectContent>
                   </Select>
                 )}
-                <TopNSlider value={apptTopN} max={apptKeyCount} onChange={setApptTopN} />
+                <GroupKeyFilter groupBy={apptGroupBy} options={apptOptions} selected={apptKeys} onChange={setApptKeys} />
+                <TopNSlider value={apptTopN} max={apptKeyCount} onChange={setApptTopN} disabled={apptKeys.length > 0} />
                 <GroupByToggle value={apptGroupBy} onChange={setApptGroupBy} />
               </div>
             }
           />
           <ChartCardContent>
             {paidTrafficWithAppt.length === 0 ? (
-              <ChartEmpty message="Sin leads de tráfico pagado con cita." height={220} />
+              <ChartEmpty
+                message={apptKeys.length > 0 ? groupSelectionEmpty(apptGroupBy) : "Sin leads de tráfico pagado con cita."}
+                height={220}
+              />
             ) : (
               <>
                 <ChartContainer
@@ -2105,7 +2286,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
-                <ChartHint>Leads de publicidad pagada (Meta/TikTok + Google) con cita · ordenado por # de citas · clic en una barra para ver las oportunidades y su etapa</ChartHint>
+                <ChartHint>{`Leads de publicidad pagada (Meta/TikTok + Google) con cita · ${groupScopeNote(apptKeys, apptTopN, apptKeyCount, apptGroupBy)} · ordenado por # de citas · clic en una barra para ver las oportunidades y su etapa`}</ChartHint>
               </>
             )}
           </ChartCardContent>
@@ -2122,14 +2303,18 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
             icon={TrendingUp}
             actions={
               <div className="flex flex-wrap items-center gap-2">
-                <TopNSlider value={wonTopN} max={wonKeyCount} onChange={setWonTopN} />
+                <GroupKeyFilter groupBy={wonGroupBy} options={wonOptions} selected={wonKeys} onChange={setWonKeys} />
+                <TopNSlider value={wonTopN} max={wonKeyCount} onChange={setWonTopN} disabled={wonKeys.length > 0} />
                 <GroupByToggle value={wonGroupBy} onChange={setWonGroupBy} />
               </div>
             }
           />
           <ChartCardContent>
             {wonPaidTraffic.length === 0 ? (
-              <ChartEmpty message="Sin deals ganados de tráfico pagado." height={220} />
+              <ChartEmpty
+                message={wonKeys.length > 0 ? groupSelectionEmpty(wonGroupBy) : "Sin deals ganados de tráfico pagado."}
+                height={220}
+              />
             ) : (
               <>
                 <ChartContainer
@@ -2191,7 +2376,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
-                <ChartHint>Oportunidades ganadas (won) de publicidad pagada (Meta/TikTok + Google) · tooltip muestra valor total</ChartHint>
+                <ChartHint>{`Oportunidades ganadas (won) de publicidad pagada (Meta/TikTok + Google) · ${groupScopeNote(wonKeys, wonTopN, wonKeyCount, wonGroupBy)} · tooltip muestra valor total`}</ChartHint>
               </>
             )}
           </ChartCardContent>
