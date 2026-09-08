@@ -27,6 +27,32 @@ function slugify(s: string): string {
     .slice(0, 60)
 }
 
+// El panel filtra y dibuja TODA fecha en la zona horaria de quien mira
+// (`resolveDateRange` usa startOfDay/endOfDay locales, y el drawer imprime
+// `toLocaleDateString`). El CSV tiene que hablar el mismo idioma. Volcar el ISO
+// crudo metía una pauta creada el 6 de septiembre a las 23:36 locales en una
+// exportación de "1–6 sep" sellada `2026-09-07T05:36Z`: seis horas por delante
+// del filtro que la seleccionó y del CRM contra el que se compara. La fecha se
+// leía como del día siguiente, fuera del rango pedido.
+const pad2 = (n: number): string => String(n).padStart(2, "0")
+
+// "2026-09-06 23:36" — local, ordenable como texto y legible por Excel/Sheets.
+function localTimestamp(iso: string | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso // texto no fechable: pásalo tal cual
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+    ` ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  )
+}
+
+// El día local, para el nombre del archivo. `toISOString().slice(0, 10)` nombraba
+// el archivo con el día de mañana cada tarde a partir de las 18:00 en México.
+function localToday(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
+}
+
 const latestOppFor = (contactId: string, opps: Opportunity[]): Opportunity | undefined =>
   opps
     .filter((o) => o.contactId === contactId)
@@ -38,7 +64,7 @@ const latestOppFor = (contactId: string, opps: Opportunity[]): Opportunity | und
  * resolve names for the opportunities mode.
  */
 export function buildDrillExport(drill: DrillState, contacts: Contact[]): DrillExport | null {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const slug = slugify(drill.title) || "registros"
 
   const showMembers = (drill.members?.length ?? 0) > 0
@@ -82,7 +108,7 @@ export function buildDrillExport(drill: DrillState, contacts: Contact[]): DrillE
       campana: c.campaign ?? "",
       asignado: c.assignedTo ?? "",
       tags: (c.tags ?? []).join("|"),
-      creado: c.createdAt,
+      creado: localTimestamp(c.createdAt),
     }))
   } else if (showPautas) {
     mode = "pautas"
@@ -95,7 +121,7 @@ export function buildDrillExport(drill: DrillState, contacts: Contact[]): DrillE
       tipo: pauta.tipo ?? "",
       nombrePauta: pauta.nombrePauta ?? "",
       tieneContacto: contact ? "sí" : "no",
-      creado: pauta.createdAt ?? "",
+      creado: localTimestamp(pauta.createdAt),
     }))
   } else {
     mode = "oportunidades"
@@ -117,7 +143,7 @@ export function buildDrillExport(drill: DrillState, contacts: Contact[]): DrillE
         fuente: o.source ?? "",
         medio: o.attributionMedium ?? "",
         motivoPerdido: o.lostReason ?? "",
-        creado: o.createdAt,
+        creado: localTimestamp(o.createdAt),
       }
     })
   }

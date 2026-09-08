@@ -30,6 +30,8 @@ pnpm verify:filters      # lib/dashboard-filters.ts — la cascada por contacto,
                          #   universales, los criterios por segmento y el toggle de Montse
 pnpm verify:pauta        # lib/pauta.ts — el vocabulario de tráfico pagado por token, no
                          #   por substring (la regresión de Callpicker), y la unión de isDePauta
+pnpm verify:drill-export # lib/drill-export.ts — el CSV sella las fechas en hora LOCAL,
+                         #   la misma con la que el filtro las seleccionó
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
@@ -465,6 +467,16 @@ Both dashboards export a branded PDF via `components/dashboard/export-report-but
   2. **Atributos** — `lib/dashboard-filters.ts`: Status, Asesor, Origen de lead y Tipo
      de pauta en todos los proyectos; más Plaza, Agencia y el toggle "Campañas Montse"
      en los que declararon el campo. Ver "Los filtros de atributo" abajo.
+
+  **Toda fecha que el usuario ve o exporta va en su hora LOCAL.** `resolveDateRange`
+  recorta con `startOfDay`/`endOfDay` locales y los componentes imprimen con
+  `toLocaleDateString("es-MX")`, así que una exportación que vuelque el ISO crudo de
+  GHL (UTC) contradice al filtro que eligió esas filas: en México corre la fecha seis
+  horas y un registro de las 23:36 del día 6 se lee como del 7, fuera del rango
+  pedido. `lib/drill-export.ts` sella `creado` — y el día del nombre del archivo —
+  con `localTimestamp()` / `localToday()`. **No regreses ninguno a `.toISOString()`**;
+  `pnpm verify:drill-export` fija el caso real de Condesa. La misma trampa sigue viva
+  en `executeExportCsv` (`lib/ai-tools.ts`), que aún exporta `createdAt` en UTC.
 
   `components/dashboard/filter-bar.tsx` es la única barra sticky y compone las dos:
   `date-range-filter.tsx` aporta solo sus controles (su `<section>` se movió a la barra),

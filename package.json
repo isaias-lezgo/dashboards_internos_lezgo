@@ -18,6 +18,7 @@
     "verify:write-tools": "tsx scripts/verify-write-tools.ts",
     "verify:filters": "tsx scripts/verify-dashboard-filters.ts",
     "verify:pauta": "tsx scripts/verify-pauta.ts",
+    "verify:drill-export": "tsx scripts/verify-drill-export.ts",
     "add-client": "tsx scripts/add-client.ts",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },
