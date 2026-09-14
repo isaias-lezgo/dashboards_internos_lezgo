@@ -499,6 +499,20 @@ Marketing) tiene spec pendiente.
   conecta desde producción y el dev local lee la misma fila de Neon. Previews tampoco.
 - El riel de la pantalla de carga cuenta `meta` solo si el paso se emitió
   (`loading-screen.tsx`); si no, un proyecto sin Meta nunca llegaría al 100 %.
+- **Conectado en producción el 2026-09-14** (usuario del sistema, token sin caducidad),
+  primer OAuth de esta app de punta a punta. Primer sync real: Lezgo Suite,
+  `act_739107949183573`, ventana 2025-09 → 2026-09, 27 campañas / 132 ads / 2 653 filas
+  diarias; 248 de 404 oportunidades `exact` (61 %), 3 `unknownAd`. **Gasto cuadrado al
+  peso contra el Administrador de anuncios**: julio 2026 $12,825.99 y agosto 2026
+  $9,817.97 MXN. Al conectar, la empresa solo compartió esa cuenta: las de Condesa,
+  Yconia, Plaza Bosques, Grand Center y Balvanera hay que compartirlas al portafolio de
+  Lezgo (socio, "ver rendimiento") y asignarlas al usuario del sistema en Business
+  Manager, y luego **Reconectar** para refrescar `available_accounts`.
+- **Gotcha de dominio**: el dominio de producción de ESTE proyecto de Vercel
+  (`dashboards-internos-lezgo`) es `proyectos.lezgosuite.com`; `dashboards.lezgosuite.com`
+  es otro proyecto (`dashboards-ghl`). `META_PUBLIC_ORIGIN` apuntando al host equivocado
+  hace que Facebook regrese a un host sin la cookie de sesión y el middleware responda
+  401 — y esa denegación **no aparece en los runtime logs de Vercel**.
 
 ### PDF report export
 
