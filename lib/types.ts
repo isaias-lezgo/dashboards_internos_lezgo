@@ -219,6 +219,79 @@ export interface CustomFieldDef {
   picklistOptions?: string[]
 }
 
+// ── Meta Ads ─────────────────────────────────────────────────────────────────
+// El dataset de la Marketing API, normalizado en tablas con ids de padre (no
+// anidado): el cruce es por adId y los charts agrupan hacia arriba. Ver
+// docs/superpowers/specs/2026-09-14-meta-ads-conexion-y-sync-design.md.
+
+export interface MetaAccount {
+  /** "act_123", como lo da Graph. */
+  id: string
+  name: string
+  /** ISO 4217. No se convierte: cuentas con monedas distintas se muestran aparte. */
+  currency: string
+  timezone: string
+}
+
+export interface MetaCampaign {
+  id: string
+  name: string
+  objective?: string
+  accountId: string
+}
+
+export interface MetaAdset {
+  id: string
+  name: string
+  campaignId: string
+}
+
+export interface MetaAd {
+  id: string
+  name: string
+  adsetId: string
+  status?: string
+}
+
+/** Un ad, un día. Meta omite los días sin gasto, así que no hay filas en cero. */
+export interface MetaDailyRow {
+  adId: string
+  /** YYYY-MM-DD en la zona horaria de la cuenta. */
+  date: string
+  spend: number
+  impressions: number
+  reach: number
+  clicks: number
+  linkClicks: number
+  /** action_type "lead": formularios → source "Pauta Formulario". */
+  leadsForm: number
+  /** action_type "onsite_conversion.messaging_conversation_started_7d": WhatsApp → "Pauta WhatsApp". */
+  leadsMsg: number
+}
+
+export interface MetaAdsData {
+  accounts: MetaAccount[]
+  campaigns: MetaCampaign[]
+  adsets: MetaAdset[]
+  ads: MetaAd[]
+  daily: MetaDailyRow[]
+  /** YYYY-MM-DD ambos; lo que se pidió, no lo que vino. */
+  window: { since: string; until: string }
+  /** Cuentas que fallaron en este sync. Vacío = todas bien. */
+  failedAccounts: { id: string; reason: string }[]
+}
+
+/**
+ * Cómo le fue al paso `meta` en el último sync. Viaja en el payload (y por tanto
+ * en el caché) para que la píldora lo lea también en un load en caliente.
+ * `none` = nadie conectó o el proyecto no tiene cuenta asignada: NO es error.
+ */
+export type MetaAdsStatus =
+  | { state: "none" }
+  | { state: "ok" }
+  | { state: "partial"; failedAccounts: { id: string; reason: string }[] }
+  | { state: "error"; reason: "token_revoked" | "token_unreadable" | "failed" }
+
 // The whole dashboard dataset: what the sync produces, what the cache stores, and
 // what the browser receives. One definition so the three cannot drift apart.
 export interface DashboardPayload {
@@ -235,6 +308,10 @@ export interface DashboardPayload {
   sources: string[]
   pautas: Pauta[]
   customFieldDefs: CustomFieldDef[]
+  // Opcionales: un frame `data` cacheado por un deploy anterior no los trae.
+  // `metaAds` es null sin conexión; el campo existente `meta` NO cambia.
+  metaAds?: MetaAdsData | null
+  metaAdsStatus?: MetaAdsStatus
   locationId: string
   meta: {
     totalContacts: number
