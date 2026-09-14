@@ -14,7 +14,7 @@ pnpm lint       # Run ESLint
 # Multi-client
 pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, validates, prints the blob)
                 #   Non-interactive: pnpm add-client --name "X" --location <id> --token pit-…
-pnpm db:migrate # Crea/verifica la tabla project_sync en Neon. Idempotente.
+pnpm db:migrate # Crea/verifica project_sync, meta_connection y meta_project_accounts en Neon. Idempotente.
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing
@@ -32,6 +32,11 @@ pnpm verify:pauta        # lib/pauta.ts — el vocabulario de tráfico pagado po
                          #   por substring (la regresión de Callpicker), y la unión de isDePauta
 pnpm verify:drill-export # lib/drill-export.ts — el CSV sella las fechas en hora LOCAL,
                          #   la misma con la que el filtro las seleccionó
+pnpm verify:meta-oauth   # lib/meta-oauth.ts — state firmado por alcance, cifrado del token, URL del diálogo
+pnpm verify:meta-connection-store # lib/meta-connection-store.ts — fila única por producto + cuentas por proyecto;
+                         #   usa la base si hay DATABASE_URL, con producto sintético (no toca 'ads')
+pnpm verify:meta         # lib/meta-normalize.ts — actions, chunks por mes, ventana de historia
+pnpm verify:meta-attribution # lib/meta-attribution.ts — llave por ad id, cohorte por día local, costo por campaña
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
@@ -91,6 +96,13 @@ Required vars in `.env.local`:
   and `analyze-contact`
 - `GHL_API_TOKEN` / `GHL_LOCATION_ID` — **not read by the app.** Kept only so the dev
   GHL MCP server (`.mcp.json`) can point at one sub-account.
+- `META_APP_ID` / `META_APP_SECRET` / `META_LOGIN_CONFIG_ID` — la app de Meta de Lezgo
+  (`Paneles Lezgo Suite`, app id `1432292882099074`, config de Login for Business
+  `1047096268324910`, la MISMA que usa DRT). **De Lezgo, no de ningún proyecto** —
+  nunca en `DASHBOARD_CLIENTS`. Sin ellas la píldora dice "Meta no configurado" y el
+  sync se comporta como sin conexión.
+- `META_PUBLIC_ORIGIN` — `https://dashboards.lezgosuite.com`, solo producción; fija el
+  `redirect_uri` del OAuth. Sin él se usa el origen de la petición (localhost).
 
 All are server-side only. `DASHBOARD_CLIENTS` is read in `lib/clients.ts`;
 `DASHBOARD_AUTH_SECRET` in `lib/auth.ts`, `app/api/auth/login/route.ts`,
@@ -433,6 +445,60 @@ the marketing charts and the AI tools. Do not re-inline this logic anywhere.
   differently ("Nombre pauta", "Nombre de la pauta", …) and some accounts have no
   attribution URL at all.
 - Totals legitimately differ between grouping modes; that's by design, not a bug.
+
+### Meta Ads
+
+Spec: `docs/superpowers/specs/2026-09-14-meta-ads-conexion-y-sync-design.md` (port de la
+entrega ① de DRT; las razones que no cambian viven en el spec de DRT). Entrega ① —
+conexión, dataset en el sync y cruce — implementada; ② (KPIs y tabla por campaña en
+Marketing) tiene spec pendiente.
+
+- **Una conexión por despliegue, cuentas por proyecto.** `meta_connection` tiene PK
+  `product` (sin `client_id`): un admin de Lezgo conecta UNA vez con la empresa de
+  Lezgo. `meta_project_accounts (project_id, product, account_ids)` dice qué `act_`
+  mira cada proyecto; una cuenta puede servir a dos proyectos (Plaza Bosques y Meseta
+  comparten anuncios). **Ninguna de las dos es desechable**: borrar la conexión
+  obliga a reconectar; el DELETE no borra asignaciones.
+- **Solo el alcance `all` administra** (`lib/meta-admin.ts`, `requireMetaAdmin()`):
+  `connect`, `callback`, `DELETE /connection` y `POST /accounts` responden 403 a
+  `domus`/`iw`, que ven la píldora como estado sin menú. El `state` del OAuth lleva el
+  `scopeId` firmado y el callback exige que sea `all` y el de la sesión — más la
+  cookie de nonce `meta_oauth`, un solo uso, que ata el callback al navegador que
+  empezó el flujo.
+- **Por qué funciona sin App Review** (verificado 2026-09-14 con el MCP de Meta):
+  `ads_read`/`business_management` están en acceso Standard, que solo se concede a
+  usuarios con rol en la app o en el portafolio que la reclamó. Quien conecta es admin
+  de la app, así que basta. Un "Conectar" por proyecto con el admin del BM de una
+  agencia NO funcionaría hoy. El *Marketing API Access Tier* empieza en Limited (rate
+  limit agresivo por cuenta) y sube a Full solo tras 500 llamadas exitosas en 15 días:
+  throttling la primera semana es esperado, se ve como paso `meta` lento o `partial`.
+- **La llave es el ad id.** `opp.adId` (utmAdId) cubre 38-63 % de las oportunidades
+  según el proyecto; `campaignName` cubre menos en los seis, y el objeto Pauta de aquí
+  no trae nombre de anuncio, así que **no hay cruce por nombre**. `oppAdId()` en
+  `lib/meta-attribution.ts` es la única función que lo lee (nativo manda; custom field
+  `ID Pauta`/`ID de Pauta` es fallback). `classifyLead` → `exact | unknownAd | noAdId |
+  notPauta`; `csv_import` es `notPauta` incluso con ad id. Solo `exact` entra al costo.
+- **`metaAds` es un dataset más del sync** (`lib/sync.ts`, paso `meta`, DESPUÉS del
+  transform de `opportunities` porque la ventana sale de la opp más antigua con ad id).
+  **Sin conexión o sin cuentas asignadas al proyecto el paso no se emite**, `metaAds`
+  es `null` y `metaAdsStatus` es `{ state: "none" }`: no es error. Con token revocado
+  (190) o secreto rotado (`token_unreadable`) el estado es `error` y
+  `preserveMetaAds()` en la ruta rescata el `metaAds` del último caché bueno para no
+  borrar el gasto en pantalla; la píldora se pone en rojo con "Reconectar". Este
+  despliegue no tiene `warnings[]`: `metaAdsStatus` es su equivalente, y viaja en el
+  payload para que un load en caliente muestre el estado correcto.
+- **Cada sync re-trae la ventana completa** (mes de la opp más vieja con ad id, tope 24
+  meses, por meses calendario). De `actions` solo salen `lead` y
+  `onsite_conversion.messaging_conversation_started_7d`.
+- **La cohorte es por día LOCAL** (`localDay`, `America/Mexico_City`) contra
+  `daily.date`, la misma regla que `drill-export`. Sin denominador → `null`, nunca
+  `$0`; `mixedCurrency` apaga los totales consolidados.
+- `lib/meta-client.ts` es **server-only** como `ghl-client.ts`. Lo puro está en
+  `meta-oauth`, `meta-normalize` y `meta-attribution`.
+- **Localhost no completa el OAuth** (la app publicada rechaza `http://localhost`): se
+  conecta desde producción y el dev local lee la misma fila de Neon. Previews tampoco.
+- El riel de la pantalla de carga cuenta `meta` solo si el paso se emitió
+  (`loading-screen.tsx`); si no, un proyecto sin Meta nunca llegaría al 100 %.
 
 ### PDF report export
 
