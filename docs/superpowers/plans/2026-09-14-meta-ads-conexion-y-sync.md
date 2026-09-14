@@ -95,7 +95,7 @@ En `scripts/verify-meta-oauth.ts`, después del `sed` los valores de prueba qued
 
 ```bash
 sed -i '' 's/scopeId: "drt"/scopeId: "all"/g; s/assert.equal(back.scopeId, "drt")/assert.equal(back.scopeId, "all")/; s/scopeId: "otro"/scopeId: "domus"/; s/state con scopeId ajeno se rechaza/state con scopeId ajeno (domus) se rechaza/' scripts/verify-meta-oauth.ts
-sed -i '' 's#https://drt.lezgosuite.com#https://dashboards.lezgosuite.com#g; s#https://drt-psi.vercel.app#https://dashboards-internos-lezgo.vercel.app#g' scripts/verify-meta-oauth.ts
+sed -i '' 's#https://drt.lezgosuite.com#https://proyectos.lezgosuite.com#g; s#https://drt-psi.vercel.app#https://dashboards-internos-lezgo.vercel.app#g' scripts/verify-meta-oauth.ts
 ```
 
 - [ ] **Step 3: Verificar que el diff contra DRT es solo eso**
@@ -2053,7 +2053,7 @@ Después de `GHL_API_TOKEN / GHL_LOCATION_ID`:
   `1047096268324910`, la MISMA que usa DRT). **De Lezgo, no de ningún proyecto** —
   nunca en `DASHBOARD_CLIENTS`. Sin ellas la píldora dice "Meta no configurado" y el
   sync se comporta como sin conexión.
-- `META_PUBLIC_ORIGIN` — `https://dashboards.lezgosuite.com`, solo producción; fija el
+- `META_PUBLIC_ORIGIN` — `https://proyectos.lezgosuite.com`, solo producción; fija el
   `redirect_uri` del OAuth. Sin él se usa el origen de la petición (localhost).
 ```
 
@@ -2147,7 +2147,7 @@ git push origin main   # Vercel despliega
 
 - [ ] **Step 2: Conectar desde producción**
 
-En `https://dashboards.lezgosuite.com` con la contraseña general, abrir Condesa → **Conectar con Meta** → autorizar con la cuenta que es admin de la app → elegir las cuentas publicitarias → vuelve con "Meta conectado". La píldora dice "Meta · sin cuenta".
+En `https://proyectos.lezgosuite.com` con la contraseña general, abrir Condesa → **Conectar con Meta** → autorizar con la cuenta que es admin de la app → elegir las cuentas publicitarias → vuelve con "Meta conectado". La píldora dice "Meta · sin cuenta".
 
 Si Meta responde con error en el diálogo, anotar el texto exacto: es el primer OAuth de esta app de punta a punta.
 
@@ -2156,7 +2156,7 @@ Si Meta responde con error en el diálogo, anotar el texto exacto: es el primer 
 Píldora → **Asignar cuenta a este proyecto** → marcar la cuenta de Condesa (los ad ids de Condesa terminan en `…0104`; el nombre de la cuenta debe corresponder a IW/Condesa) → **Guardar y sincronizar**. El sync en fresco muestra el paso "Cargando Meta Ads… N anuncios". Al terminar:
 
 ```bash
-curl -s -b "dash_access=…; dash_project=…" 'https://dashboards.lezgosuite.com/api/dashboard' | python3 -c "
+curl -s -b "dash_access=…; dash_project=…" 'https://proyectos.lezgosuite.com/api/dashboard' | python3 -c "
 import sys, json
 d = json.loads(sys.stdin.read().strip().splitlines()[-1])
 m = d['metaAds']; print(d['metaAdsStatus']); print(len(m['campaigns']), 'campañas', len(m['ads']), 'ads', len(m['daily']), 'filas diarias', m['window'])"

@@ -83,22 +83,22 @@ async function main() {
     buildDialogUrl({
       appId: "123",
       configId: "456",
-      redirectUri: "https://dashboards.lezgosuite.com/api/meta/callback",
+      redirectUri: "https://proyectos.lezgosuite.com/api/meta/callback",
       state: "abc.def",
     })
   );
   assert.equal(url.origin + url.pathname, "https://www.facebook.com/v23.0/dialog/oauth");
   assert.equal(url.searchParams.get("client_id"), "123");
   assert.equal(url.searchParams.get("config_id"), "456");
-  assert.equal(url.searchParams.get("redirect_uri"), "https://dashboards.lezgosuite.com/api/meta/callback");
+  assert.equal(url.searchParams.get("redirect_uri"), "https://proyectos.lezgosuite.com/api/meta/callback");
   assert.equal(url.searchParams.get("state"), "abc.def");
   assert.equal(url.searchParams.get("response_type"), "code");
   assert.equal(url.searchParams.get("scope"), null, "con Login for Business el scope lo define la configuración");
 
   // --- redirect_uri: el origen público manda; si no hay, el de la petición
   assert.equal(
-    redirectUriFor("http://localhost:3000/api/meta/connect?x=1", "https://dashboards.lezgosuite.com"),
-    "https://dashboards.lezgosuite.com/api/meta/callback"
+    redirectUriFor("http://localhost:3000/api/meta/connect?x=1", "https://proyectos.lezgosuite.com"),
+    "https://proyectos.lezgosuite.com/api/meta/callback"
   );
   assert.equal(
     redirectUriFor("http://localhost:3000/api/meta/connect", undefined),

@@ -101,7 +101,7 @@ Required vars in `.env.local`:
   `1047096268324910`, la MISMA que usa DRT). **De Lezgo, no de ningún proyecto** —
   nunca en `DASHBOARD_CLIENTS`. Sin ellas la píldora dice "Meta no configurado" y el
   sync se comporta como sin conexión.
-- `META_PUBLIC_ORIGIN` — `https://dashboards.lezgosuite.com`, solo producción; fija el
+- `META_PUBLIC_ORIGIN` — `https://proyectos.lezgosuite.com`, solo producción; fija el
   `redirect_uri` del OAuth. Sin él se usa el origen de la petición (localhost).
 
 All are server-side only. `DASHBOARD_CLIENTS` is read in `lib/clients.ts`;

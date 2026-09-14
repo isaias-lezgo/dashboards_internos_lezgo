@@ -154,9 +154,9 @@ cambios:
   por lo que sea no está, cae al picker con `?meta=connected` en la URL; la píldora
   no se monta ahí y el parámetro se ignora. No se agrega `returnTo` con rutas.
 - Previews de Vercel: 409 `preview`, como DRT. `META_PUBLIC_ORIGIN =
-  https://dashboards.lezgosuite.com` fija el `redirect_uri` en producción. **Ya
+  https://proyectos.lezgosuite.com` fija el `redirect_uri` en producción. **Ya
   cargadas en Vercel** las cuatro variables (2026-09-14); falta registrar
-  `https://dashboards.lezgosuite.com/api/meta/callback` en la app de Meta (hecho).
+  `https://proyectos.lezgosuite.com/api/meta/callback` en la app de Meta (hecho).
 
 | Ruta | Compuerta | Hace |
 |---|---|---|
@@ -287,7 +287,7 @@ en `partial`, hover y focus (DESIGN.md: ámbar marca dónde va la atención).
 ## Acceso de la app (verificado con el MCP de Meta Developers, 2026-09-14)
 
 App `1432292882099074` "Paneles Lezgo Suite", live, dominio base `lezgosuite.com`,
-redirect `https://dashboards.lezgosuite.com/api/meta/callback` registrado. Config de
+redirect `https://proyectos.lezgosuite.com/api/meta/callback` registrado. Config de
 Login for Business `1047096268324910`: variación General, token de **usuario del
 sistema**, portafolio de negocio de Lezgo conectado.
 
@@ -317,7 +317,7 @@ Las de DRT, ya cargadas en Vercel (producción, preview, development) y en
 META_APP_ID            # 1432292882099074 — app publicada "Paneles Lezgo Suite"
 META_APP_SECRET
 META_LOGIN_CONFIG_ID   # 1047096268324910 — ads_read + business_management
-META_PUBLIC_ORIGIN     # https://dashboards.lezgosuite.com — solo producción
+META_PUBLIC_ORIGIN     # https://proyectos.lezgosuite.com — solo producción
 ```
 
 Son de Lezgo: **no** van en `DASHBOARD_CLIENTS`. Sin las tres primeras la píldora
