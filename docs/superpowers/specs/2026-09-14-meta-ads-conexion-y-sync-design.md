@@ -156,7 +156,7 @@ cambios:
 - Previews de Vercel: 409 `preview`, como DRT. `META_PUBLIC_ORIGIN =
   https://dashboards.lezgosuite.com` fija el `redirect_uri` en producción. **Ya
   cargadas en Vercel** las cuatro variables (2026-09-14); falta registrar
-  `https://dashboards.lezgosuite.com/api/meta/callback` en la app de Meta.
+  `https://dashboards.lezgosuite.com/api/meta/callback` en la app de Meta (hecho).
 
 | Ruta | Compuerta | Hace |
 |---|---|---|
@@ -281,6 +281,30 @@ respuesta de `/connection`**, no por props.
 
 Los `domus`/`iw` ven la píldora solo como estado: sin menú, sin botón. Amber solo
 en `partial`, hover y focus (DESIGN.md: ámbar marca dónde va la atención).
+
+---
+
+## Acceso de la app (verificado con el MCP de Meta Developers, 2026-09-14)
+
+App `1432292882099074` "Paneles Lezgo Suite", live, dominio base `lezgosuite.com`,
+redirect `https://dashboards.lezgosuite.com/api/meta/callback` registrado. Config de
+Login for Business `1047096268324910`: variación General, token de **usuario del
+sistema**, portafolio de negocio de Lezgo conectado.
+
+- **La app no ha pasado App Review** (`UNSUBMITTED`): `ads_read`,
+  `business_management` y *Marketing API Access Tier* están en acceso **Standard**.
+  Standard = las permisiones solo se conceden a usuarios **con rol en la app o en el
+  portafolio que la reclamó**. Quien conecta en LEZGO es admin de la app, así que el
+  modelo de conexión única **funciona sin review** — y es la razón por la que un
+  "Conectar" por proyecto, con el admin del BM de una agencia, no funcionaría hoy.
+  DRT, por lo mismo, nunca completó una conexión (`meta_connection` vacía): **el
+  flujo OAuth de esta app está sin probar de punta a punta; LEZGO será el primero.**
+- **Marketing API Access Tier en "Limited"** (default): rate limit agresivo por
+  cuenta publicitaria. Sube a **Full** solo al acumular 500 llamadas exitosas en 15
+  días con <15 % de error; el sync lo alcanza en pocos días. Mientras tanto el
+  throttling (`17`, `613`, `80004`) se ve como paso `meta` lento o `partial` con
+  reintentos, **no** como panel roto. El plan no debe "arreglar" eso la primera
+  semana. `verify:meta` ya fija los reintentos.
 
 ---
 
