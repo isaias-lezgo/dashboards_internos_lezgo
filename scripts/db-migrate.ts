@@ -1,4 +1,4 @@
-// Creates the cache table. Idempotent — safe to run on every deploy or by hand.
+// Crea las tablas del caché y de Meta. Idempotent — safe to run on every deploy or by hand.
 // Run: pnpm db:migrate
 //
 // No migration framework: one table does not justify one, and the repo has no
@@ -25,14 +25,45 @@ async function main() {
     )
   `;
 
-  const rows = await sql`
-    SELECT column_name, data_type
-      FROM information_schema.columns
-     WHERE table_name = 'project_sync'
-     ORDER BY ordinal_position
+  // La conexión con Meta: UNA por despliegue (PK = product), no por proyecto.
+  // A diferencia de project_sync NO es desechable: si se borra hay que volver
+  // a apretar "Conectar con Meta".
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_connection (
+      product             text        PRIMARY KEY,
+      token_encrypted     bytea       NOT NULL,
+      token_kind          text        NOT NULL,
+      token_expires_at    timestamptz,
+      business_id         text,
+      connected_by        text,
+      available_accounts  jsonb       NOT NULL,
+      connected_at        timestamptz NOT NULL,
+      updated_at          timestamptz NOT NULL
+    )
   `;
-  console.log("✅ project_sync lista:");
-  for (const r of rows) console.log(`   ${r.column_name} ${r.data_type}`);
+
+  // Qué cuentas publicitarias mira cada proyecto. Sin FK a meta_connection a
+  // propósito: reconectar con la misma empresa no debe borrar asignaciones.
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_project_accounts (
+      project_id   text        NOT NULL,
+      product      text        NOT NULL,
+      account_ids  jsonb       NOT NULL,
+      updated_at   timestamptz NOT NULL,
+      PRIMARY KEY (project_id, product)
+    )
+  `;
+
+  for (const table of ["project_sync", "meta_connection", "meta_project_accounts"]) {
+    const rows = await sql`
+      SELECT column_name, data_type
+        FROM information_schema.columns
+       WHERE table_name = ${table}
+       ORDER BY ordinal_position
+    `;
+    console.log(`✅ ${table} lista:`);
+    for (const r of rows) console.log(`   ${r.column_name} ${r.data_type}`);
+  }
 }
 
 main().catch((err) => {

@@ -21,6 +21,7 @@
     "verify:drill-export": "tsx scripts/verify-drill-export.ts",
     "verify:meta-oauth": "tsx scripts/verify-meta-oauth.ts",
     "verify:meta": "tsx scripts/verify-meta.ts",
+    "verify:meta-connection-store": "tsx --env-file-if-exists=.env.local scripts/verify-meta-connection-store.ts",
     "add-client": "tsx scripts/add-client.ts",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },
