@@ -20,6 +20,7 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { SalesDashboard } from "@/components/dashboard/sales-dashboard"
 import { ConversationsChat } from "@/components/dashboard/conversations-chat"
+import { MetaConnectionPill } from "@/components/dashboard/meta-connection"
 import { useDashboardData } from "@/hooks/use-dashboard-data"
 import { useConversationsData } from "@/hooks/use-conversations-data"
 import {
@@ -314,6 +315,8 @@ export function DashboardApp() {
             </span>
             
            
+            <MetaConnectionPill status={data?.metaAdsStatus} onChanged={() => refresh()} />
+
             <Button
               variant="default"
               size="sm"
