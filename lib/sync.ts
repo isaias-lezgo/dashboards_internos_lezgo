@@ -26,6 +26,10 @@ import {
   type GHLTask,
 } from "@/lib/ghl-client";
 import { withClient } from "@/lib/ghl-context";
+import { readMetaConnectionWithToken, readProjectAccounts } from "@/lib/meta-connection-store";
+import { fetchMetaAds, MetaApiError } from "@/lib/meta-client";
+import { historyWindow } from "@/lib/meta-normalize";
+import { oppAdId, PANEL_TIME_ZONE } from "@/lib/meta-attribution";
 import type {
   Contact,
   Opportunity,
@@ -34,6 +38,8 @@ import type {
   Pipeline,
   Pauta,
   Appointment,
+  MetaAdsData,
+  MetaAdsStatus,
 } from "@/lib/types";
 
 type Attribution = {
@@ -368,7 +374,7 @@ async function fetchAppointments(userMap: Map<string, string>): Promise<Appointm
 
 export type SyncFrame =
   | { type: "location"; name: string }
-  | { type: "step"; key: string; status: "loading" | "done"; count?: number }
+  | { type: "step"; key: string; status: "loading" | "done" | "partial" | "error"; count?: number }
   | { type: "progress"; message: string };
 
 // Runs one full sync inside the project's credential context and returns the
@@ -387,7 +393,7 @@ export async function syncProject(
     // text frames are still sent as a human-readable fallback.
     const sendStep = (
       key: string,
-      status: "loading" | "done",
+      status: "loading" | "done" | "partial" | "error",
       count?: number
     ) => onFrame({ type: "step", key, status, ...(count !== undefined ? { count } : {}) });
 
@@ -618,6 +624,79 @@ export async function syncProject(
         }
       }
 
+      // ── Meta Ads ──────────────────────────────────────────────────────────
+      // Corre DESPUÉS del transform de opportunities porque la ventana de historia
+      // sale de la oportunidad más antigua con ad id. Sin conexión o sin cuentas
+      // asignadas a ESTE proyecto el paso no se emite: no es un error, es que
+      // nadie conectó o nadie le asignó cuenta al proyecto.
+      let metaAds: MetaAdsData | null = null;
+      let metaAdsStatus: MetaAdsStatus = { state: "none" };
+      // El token solo se descifra aquí y nunca sale de este bloque.
+      const [metaConn, metaAccountIds] = await Promise.all([
+        readMetaConnectionWithToken("ads").catch((err) => {
+          console.error("[meta] no se pudo leer la conexión, se sincroniza sin Meta:", err);
+          return null;
+        }),
+        readProjectAccounts(client, "ads").catch((err) => {
+          console.error("[meta] no se pudieron leer las cuentas del proyecto:", err);
+          return [] as string[];
+        }),
+      ]);
+      if (metaConn && metaAccountIds.length > 0) {
+        if (metaConn.token === null) {
+          // Hay fila pero el blob no descifra (DASHBOARD_AUTH_SECRET rotado). Callar
+          // aquí dejaría la píldora en "conectado" y el gasto congelado sin aviso.
+          sendStep("meta", "error", 0);
+          metaAdsStatus = { state: "error", reason: "token_unreadable" };
+        } else {
+          sendStep("meta", "loading", 0);
+          onFrame({ type: "progress", message: "Cargando Meta Ads…" });
+          const today = new Intl.DateTimeFormat("en-CA", {
+            timeZone: PANEL_TIME_ZONE,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(new Date());
+          const wanted = new Set(metaAccountIds);
+          try {
+            metaAds = await fetchMetaAds({
+              token: metaConn.token,
+              accounts: metaConn.availableAccounts.filter((a) => wanted.has(a.id)),
+              window: historyWindow(
+                opportunities.map((o) => ({ createdAt: o.createdAt, adId: oppAdId(o) ?? undefined })),
+                today
+              ),
+              onProgress: (n) => {
+                sendStep("meta", "loading", n);
+                onFrame({ type: "progress", message: `Cargando Meta Ads… ${n.toLocaleString("es-MX")} anuncios` });
+              },
+            });
+            // Una cuenta asignada que la conexión ya no ve (otra empresa, o se
+            // dejó de compartir) cuenta como fallida: la píldora la nombra.
+            const missing = metaAccountIds
+              .filter((id) => !metaConn.availableAccounts.some((a) => a.id === id))
+              .map((id) => ({ id, reason: "not_available" }));
+            const failed = [...metaAds.failedAccounts, ...missing];
+            if (failed.length > 0) {
+              metaAds = { ...metaAds, failedAccounts: failed };
+              sendStep("meta", "partial", metaAds.ads.length);
+              metaAdsStatus = { state: "partial", failedAccounts: failed };
+            } else {
+              sendStep("meta", "done", metaAds.ads.length);
+              metaAdsStatus = { state: "ok" };
+            }
+          } catch (err) {
+            console.error("[meta] el sync de Meta Ads falló:", err instanceof Error ? err.message : String(err));
+            sendStep("meta", "error", 0);
+            metaAds = null;
+            metaAdsStatus = {
+              state: "error",
+              reason: err instanceof MetaApiError && err.isTokenInvalid ? "token_revoked" : "failed",
+            };
+          }
+        }
+      }
+
       // Conversations/messages are fetched separately by /api/dashboard-messages
       // (background load) so the expensive per-user message fan-out stays off
       // the critical path of the initial dashboard render.
@@ -657,6 +736,8 @@ export async function syncProject(
         sources: Array.from(sourceSet),
         pautas,
         customFieldDefs,
+        metaAds,
+        metaAdsStatus,
         locationId: client.locationId,
         meta: {
           totalContacts: contacts.length,

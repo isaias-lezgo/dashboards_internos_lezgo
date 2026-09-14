@@ -57,7 +57,7 @@ export async function GET(req: Request) {
       // currentClient() throws).
       const send = (obj: unknown) => controller.enqueue(encoder.encode(enc(obj)));
       try {
-        const payload = await syncProject(client, send);
+        const payload = await preserveMetaAds(client, await syncProject(client, send));
         send({ type: "data", ...payload });
         await saveQuietly(client, payload);
       } catch (error) {
@@ -105,6 +105,22 @@ async function saveQuietly(client: ClientConfig, payload: DashboardPayload) {
   }
 }
 
+// Si el paso meta FALLÓ (token revocado, secreto rotado, Meta caído), conserva el
+// metaAds del último caché bueno: un gasto de hace una hora le gana a ningún
+// gasto, y metaAdsStatus (que sí se conserva del sync nuevo) ya dice que no se
+// actualizó. Un `none` (sin conexión / sin cuentas) NO rescata nada: ahí el
+// vacío es real.
+async function preserveMetaAds(client: ClientConfig, payload: DashboardPayload): Promise<DashboardPayload> {
+  if (payload.metaAdsStatus?.state !== "error" || payload.metaAds || !isDbConfigured()) return payload;
+  try {
+    const prev = await readSync(client);
+    if (prev?.payload.metaAds) return { ...payload, metaAds: prev.payload.metaAds };
+  } catch (err) {
+    console.error("[meta] no se pudo rescatar el último metaAds:", err);
+  }
+  return payload;
+}
+
 // Runs after the response. Nothing here can reach the user, so every failure path
 // ends in a log — but the lock MUST be released either way, or the project stops
 // refreshing until the 10-minute timeout expires.
@@ -115,7 +131,7 @@ async function refreshInBackground(client: ClientConfig) {
     // Someone else is already syncing this project: two people opening the same
     // stale project at once must produce one sync, not two.
     if (!claimed) return;
-    const payload = await syncProject(client);
+    const payload = await preserveMetaAds(client, await syncProject(client));
     // writeSync clears sync_started_at itself, so the success path needs no release.
     await writeSync(client, payload);
     console.log(`[cache] ${client.id} refrescado en segundo plano`);

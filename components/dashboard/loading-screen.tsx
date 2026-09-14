@@ -3,7 +3,7 @@
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { useEffect, useState } from "react"
-import type { StepKey, StepMap } from "@/hooks/use-dashboard-data"
+import type { StepKey, StepMap, StepState } from "@/hooks/use-dashboard-data"
 
 interface LoadingScreenProps {
   progress: string
@@ -13,9 +13,9 @@ interface LoadingScreenProps {
   steps?: StepMap
 }
 
-// The datasets /api/dashboard fetches concurrently. They are no longer listed
-// one row each — the screen only counts them, to size the progress rail.
-const STEP_KEYS: StepKey[] = [
+// Los datasets de GHL que /api/dashboard trae siempre. No se listan uno por
+// fila — la pantalla solo los cuenta, para dimensionar el riel.
+const GHL_STEP_KEYS: StepKey[] = [
   "config",
   "contacts",
   "opportunities",
@@ -31,7 +31,10 @@ const IDLE_STEPS: StepMap = {
   pautas: { status: "pending" },
   appointments: { status: "pending" },
   tasks: { status: "pending" },
+  meta: { status: "pending" },
 }
+
+const FINISHED = new Set<StepState["status"]>(["done", "partial", "error"])
 
 // ease-out-expo. Everything here decelerates; nothing overshoots.
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
@@ -81,8 +84,11 @@ export function LoadingScreen({ progress, locationName, steps }: LoadingScreenPr
   // A step frame only ever arrives on the cold path — the cached response is a
   // single `data` frame. So the first frame that moves off "pending" is the
   // signal that this is a real GHL sync and not a sub-second cache read.
-  const syncing = STEP_KEYS.some((k) => resolved[k].status !== "pending")
-  const done = STEP_KEYS.filter((k) => resolved[k].status === "done").length
+  const syncing = GHL_STEP_KEYS.some((k) => resolved[k].status !== "pending")
+  // El paso `meta` solo existe en proyectos con Meta: si nunca salió de
+  // "pending" no entra al denominador, o el riel jamás llegaría al final.
+  const keys = resolved.meta.status === "pending" ? GHL_STEP_KEYS : [...GHL_STEP_KEYS, "meta" as StepKey]
+  const done = keys.filter((k) => FINISHED.has(resolved[k].status)).length
 
   const [patienceSpent, setPatienceSpent] = useState(false)
   useEffect(() => {
@@ -145,7 +151,7 @@ export function LoadingScreen({ progress, locationName, steps }: LoadingScreenPr
         </p>
 
         <div className="mt-8">
-          <Rail ratio={syncing ? done / STEP_KEYS.length : null} />
+          <Rail ratio={syncing ? done / keys.length : null} />
         </div>
 
         {/* Reserved height so the line appearing on a slow sync doesn't shift

@@ -10,10 +10,12 @@ export type StepKey =
   | "opportunities"
   | "pautas"
   | "appointments"
-  | "tasks";
+  | "tasks"
+  // Solo se emite cuando el proyecto tiene Meta conectado y cuenta asignada.
+  | "meta";
 
 export interface StepState {
-  status: "pending" | "loading" | "done";
+  status: "pending" | "loading" | "done" | "partial" | "error";
   count?: number;
 }
 
@@ -26,6 +28,7 @@ const INITIAL_STEPS: StepMap = {
   pautas: { status: "pending" },
   appointments: { status: "pending" },
   tasks: { status: "pending" },
+  meta: { status: "pending" },
 };
 
 // The payload the sync produces, the cache stores and the browser receives — one
@@ -76,7 +79,7 @@ export function useDashboardData(params?: {
         (step) =>
           setSteps((prev) => ({
             ...prev,
-            [step.key]: { status: step.status, count: step.count },
+            [step.key as StepKey]: { status: step.status, count: step.count },
           }))
       );
       // Ignore the result of a fetch that has since been superseded (e.g. the

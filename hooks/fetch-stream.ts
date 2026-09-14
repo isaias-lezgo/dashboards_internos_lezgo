@@ -2,7 +2,7 @@
 
 export interface StreamStep {
   key: string;
-  status: "loading" | "done";
+  status: "loading" | "done" | "partial" | "error";
   count?: number;
 }
 
