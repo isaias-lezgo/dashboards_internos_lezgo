@@ -1,7 +1,8 @@
 // lib/meta-attribution.ts
 // El cruce entre el gasto de Meta y las oportunidades del CRM. Puro: sin React,
 // sin Next, sin base. Lo usan el sync (oppAdId, PANEL_TIME_ZONE) y la entrega
-// ② en el panel (índice, cohorte, costo por campaña).
+// ② en el panel y el asistente (índice, cohorte, `buildMetaReport` por
+// campaña/conjunto/anuncio/mes).
 //
 // La llave es el AD ID. Nunca se cruza por nombre: campaignName cubre menos que
 // adId en los seis proyectos y el objeto Pauta de este despliegue no trae nombre
@@ -159,18 +160,27 @@ export interface CostSummary {
   noAdIdLeads: number;
 }
 
-function currencyOf(index: MetaIndex, adId: string): string {
-  return index.byAd.get(adId)?.account?.currency ?? "?";
+/** La única moneda de las cuentas del dataset, o null si hay varias o ninguna. */
+export function defaultCurrency(meta: MetaAdsData): string | null {
+  const set = new Set(meta.accounts.map((a) => a.currency));
+  return set.size === 1 ? Array.from(set)[0] : null;
+}
+
+// Un ad que ya no está en /ads (borrado, archivado) sigue teniendo insights; sin
+// jerarquía no sabemos su cuenta. Si el dataset tiene una sola moneda, es esa.
+function currencyOf(index: MetaIndex, adId: string, fallback: string | null): string {
+  return index.byAd.get(adId)?.account?.currency ?? fallback ?? "?";
 }
 
 // Cohorte de creación: el gasto de la ventana contra los leads que ESA ventana
 // creó. Sin denominador → null; nunca $0 ni ∞.
 export function buildCostSummary(p: CostInput): CostSummary {
+  const fallback = defaultCurrency(p.meta);
   const spendByCurrency: Record<string, number> = {};
   let leadsMeta = 0;
   for (const row of p.meta.daily) {
     if (!inRange(row.date, p.range)) continue;
-    const cur = currencyOf(p.index, row.adId);
+    const cur = currencyOf(p.index, row.adId, fallback);
     spendByCurrency[cur] = (spendByCurrency[cur] ?? 0) + row.spend;
     leadsMeta += row.leadsForm + row.leadsMsg;
   }
@@ -209,17 +219,33 @@ export function buildCostSummary(p: CostInput): CostSummary {
   };
 }
 
-// ── Por campaña ─────────────────────────────────────────────────────────────
+// ── Reporte por groupBy ─────────────────────────────────────────────────────
+// UN solo motor para la tabla del panel (campaign), la sección del PDF y la
+// herramienta meta_ads_report del asistente. Cada fila va en la moneda de su
+// cuenta; una fila que mezcla cuentas de monedas distintas (none/month) lleva
+// currency "?" y sin costos — el gasto se suma igual y el consumidor decide.
 
-export interface CampaignPerformanceRow {
-  campaignId: string;
-  name: string;
-  accountId: string;
+export type MetaGroupBy = "none" | "campaign" | "adset" | "ad" | "month";
+
+export interface MetaReportInput extends CostInput {
+  groupBy: MetaGroupBy;
+  /** Acota a las campañas cuyo nombre contiene esto (sin acentos ni mayúsculas). */
+  campaign?: string;
+  /** Adjunta oppIds/contactIds (distintos, tope 50) para drill-down y gráficas. */
+  includeIds?: boolean;
+}
+
+export interface MetaReportRow {
+  /** id de campaña/adset/ad, "YYYY-MM", o "total". */
+  key: string;
+  label: string;
+  accountId: string | null;
+  /** "?" cuando la fila mezcla monedas. */
   currency: string;
   spend: number;
   impressions: number;
   clicks: number;
-  /** Gasto por mil impresiones; null sin impresiones. */
+  /** Gasto por mil impresiones; null sin impresiones o con moneda mixta. */
   cpm: number | null;
   /** clicks / impressions; null sin impresiones. */
   ctr: number | null;
@@ -228,66 +254,121 @@ export interface CampaignPerformanceRow {
   won: number;
   cpl: number | null;
   cpa: number | null;
+  oppIds?: string[];
+  contactIds?: string[];
 }
 
-// Filas por campaña de META (su jerarquía, no el UTM), ordenadas por gasto
-// desc. Solo campañas con actividad o leads en la ventana. Cada fila va en la
-// moneda de su cuenta: no se consolida entre campañas aquí.
-export function buildCampaignPerformance(p: CostInput): CampaignPerformanceRow[] {
-  const rows = new Map<string, CampaignPerformanceRow>();
-  const rowFor = (campaign: MetaCampaign, account?: MetaAccount): CampaignPerformanceRow => {
-    let r = rows.get(campaign.id);
-    if (!r) {
-      r = {
-        campaignId: campaign.id,
-        name: campaign.name,
-        accountId: campaign.accountId,
-        currency: account?.currency ?? "?",
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        cpm: null,
-        ctr: null,
-        leadsMeta: 0,
-        leadsCrm: 0,
-        won: 0,
-        cpl: null,
-        cpa: null,
-      };
-      rows.set(campaign.id, r);
+/** Compatibilidad con la entrega ①: la fila por campaña con `campaignId`. */
+export interface CampaignPerformanceRow extends MetaReportRow {
+  campaignId: string;
+}
+
+const ID_CAP = 50;
+
+function fold(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+type Hit = ReturnType<MetaIndex["byAd"]["get"]>;
+
+interface Bucket extends MetaReportRow {
+  _currencies: Set<string>;
+  _oppIds: string[];
+  _contactIds: Set<string>;
+}
+
+export function buildMetaReport(p: MetaReportInput): MetaReportRow[] {
+  const needle = p.campaign ? fold(p.campaign) : null;
+  const fallback = defaultCurrency(p.meta);
+  const buckets = new Map<string, Bucket>();
+
+  const matches = (hit: Hit): boolean =>
+    !needle || (!!hit?.campaign && fold(hit.campaign.name).includes(needle));
+
+  const keyFor = (hit: Hit, day: string): { key: string; label: string; accountId: string | null } | null => {
+    switch (p.groupBy) {
+      case "none":
+        return { key: "total", label: "Total", accountId: null };
+      case "month":
+        return { key: day.slice(0, 7), label: day.slice(0, 7), accountId: null };
+      case "campaign":
+        return hit?.campaign ? { key: hit.campaign.id, label: hit.campaign.name, accountId: hit.campaign.accountId } : null;
+      case "adset":
+        return hit?.adset ? { key: hit.adset.id, label: hit.adset.name, accountId: hit.campaign?.accountId ?? null } : null;
+      case "ad":
+        return hit ? { key: hit.ad.id, label: hit.ad.name, accountId: hit.campaign?.accountId ?? null } : null;
     }
-    return r;
+  };
+
+  const bucketFor = (k: { key: string; label: string; accountId: string | null }): Bucket => {
+    let b = buckets.get(k.key);
+    if (!b) {
+      b = {
+        key: k.key, label: k.label, accountId: k.accountId, currency: "?",
+        spend: 0, impressions: 0, clicks: 0, cpm: null, ctr: null,
+        leadsMeta: 0, leadsCrm: 0, won: 0, cpl: null, cpa: null,
+        _currencies: new Set(), _oppIds: [], _contactIds: new Set(),
+      };
+      buckets.set(k.key, b);
+    }
+    return b;
   };
 
   for (const row of p.meta.daily) {
     if (!inRange(row.date, p.range)) continue;
     const hit = p.index.byAd.get(row.adId);
-    if (!hit?.campaign) continue;
-    const r = rowFor(hit.campaign, hit.account);
-    r.spend += row.spend;
-    r.impressions += row.impressions;
-    r.clicks += row.clicks;
-    r.leadsMeta += row.leadsForm + row.leadsMsg;
+    if (!matches(hit)) continue;
+    const k = keyFor(hit, row.date);
+    if (!k) continue;
+    const b = bucketFor(k);
+    b.spend += row.spend;
+    b.impressions += row.impressions;
+    b.clicks += row.clicks;
+    b.leadsMeta += row.leadsForm + row.leadsMsg;
+    b._currencies.add(currencyOf(p.index, row.adId, fallback));
   }
 
   const ctx = { index: p.index, pautaContacts: p.pautaContacts };
   for (const opp of p.opportunities) {
-    if (!inRange(localDay(opp.createdAt), p.range)) continue;
+    const day = localDay(opp.createdAt);
+    if (!inRange(day, p.range)) continue;
     if (classifyLead(opp, ctx) !== "exact") continue;
-    const hit = p.index.byAd.get(oppAdId(opp)!);
-    if (!hit?.campaign) continue;
-    const r = rowFor(hit.campaign, hit.account);
-    r.leadsCrm += 1;
-    if (isWonOpp(opp)) r.won += 1;
+    const adId = oppAdId(opp)!;
+    const hit = p.index.byAd.get(adId);
+    if (!matches(hit)) continue;
+    const k = keyFor(hit, day);
+    if (!k) continue;
+    const b = bucketFor(k);
+    b.leadsCrm += 1;
+    if (isWonOpp(opp)) b.won += 1;
+    b._currencies.add(currencyOf(p.index, adId, fallback));
+    if (p.includeIds && b._oppIds.length < ID_CAP) {
+      b._oppIds.push(opp.id);
+      if (opp.contactId) b._contactIds.add(opp.contactId);
+    }
   }
 
-  const out = Array.from(rows.values());
-  for (const r of out) {
-    r.cpm = r.impressions > 0 ? (r.spend / r.impressions) * 1000 : null;
-    r.ctr = ratio(r.clicks, r.impressions);
-    r.cpl = ratio(r.spend, r.leadsCrm);
-    r.cpa = ratio(r.spend, r.won);
+  const out: MetaReportRow[] = [];
+  for (const b of buckets.values()) {
+    const { _currencies, _oppIds, _contactIds, ...row } = b;
+    const mixed = _currencies.size > 1;
+    row.currency = mixed || _currencies.size === 0 ? "?" : Array.from(_currencies)[0];
+    row.cpm = !mixed && row.impressions > 0 ? (row.spend / row.impressions) * 1000 : null;
+    row.ctr = ratio(row.clicks, row.impressions);
+    row.cpl = mixed ? null : ratio(row.spend, row.leadsCrm);
+    row.cpa = mixed ? null : ratio(row.spend, row.won);
+    if (p.includeIds) {
+      row.oppIds = _oppIds;
+      row.contactIds = Array.from(_contactIds);
+    }
+    out.push(row);
   }
-  out.sort((a, b) => b.spend - a.spend || a.name.localeCompare(b.name));
+  if (p.groupBy === "month") out.sort((a, b) => a.key.localeCompare(b.key));
+  else out.sort((a, b) => b.spend - a.spend || a.label.localeCompare(b.label));
   return out;
+}
+
+/** Alias de ①: filas por campaña con `campaignId`. */
+export function buildCampaignPerformance(p: CostInput): CampaignPerformanceRow[] {
+  return buildMetaReport({ ...p, groupBy: "campaign" }).map((r) => ({ ...r, campaignId: r.key }));
 }

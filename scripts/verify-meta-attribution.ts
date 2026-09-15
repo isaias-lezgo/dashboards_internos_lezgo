@@ -15,6 +15,8 @@ import {
   localDay,
   buildCostSummary,
   buildCampaignPerformance,
+  buildMetaReport,
+  defaultCurrency,
 } from "../lib/meta-attribution";
 
 function opp(over: Partial<Opportunity> & { id: string }): Opportunity {
@@ -164,6 +166,89 @@ async function main() {
   assert.equal(b.cpa, null);
   assert.ok(rows.findIndex((r) => r.campaignId === "camp-b") < rows.findIndex((r) => r.campaignId === "camp-a"), "ordenado por gasto desc");
   assert.equal(rows.some((r) => r.campaignId === "camp-usd"), false, "sin filas en la ventana no aparece");
+
+  // ── buildMetaReport ────────────────────────────────────────────────────────
+  const mxnIdx = buildMetaIndex(mxn);
+  const base = { opportunities: opps, meta: mxn, index: mxnIdx, range, pautaContacts };
+
+  // --- none: una fila total, igual que buildCostSummary
+  const total = buildMetaReport({ ...base, groupBy: "none" });
+  assert.equal(total.length, 1);
+  assert.equal(total[0].key, "total");
+  assert.equal(total[0].spend, 450);
+  assert.equal(total[0].leadsCrm, 4);
+  assert.equal(total[0].currency, "MXN");
+  assert.equal(total[0].cpl, 112.5);
+
+  // --- campaign: idéntico al alias
+  const byCamp = buildMetaReport({ ...base, groupBy: "campaign" });
+  assert.deepEqual(byCamp.map((r) => [r.key, r.spend, r.leadsCrm]), rows.map((r) => [r.campaignId, r.spend, r.leadsCrm]));
+
+  // --- month: cronológico; la cohorte cruza el límite de mes por DÍA LOCAL
+  const byMonth = buildMetaReport({ ...base, groupBy: "month", range: null });
+  assert.deepEqual(byMonth.map((r) => r.key), ["2026-08", "2026-09"]);
+  assert.equal(byMonth[0].spend, 450);
+  assert.equal(byMonth[0].leadsCrm, 4, "a4 (31 ago 23:59 local) cae en agosto");
+  assert.equal(byMonth[1].spend, 999);
+  assert.equal(byMonth[1].leadsCrm, 1, "sep (1 sep 00:01 local) cae en septiembre");
+  assert.equal(byMonth[1].label, "2026-09");
+
+  // --- adset y ad
+  const byAdset = buildMetaReport({ ...base, groupBy: "adset" });
+  assert.deepEqual(byAdset.map((r) => [r.key, r.spend]), [["set-b", 300], ["set-a", 150]]);
+  const byAd = buildMetaReport({ ...base, groupBy: "ad" });
+  assert.deepEqual(byAd.map((r) => r.key), ["120003", "120001", "120002"]);
+  assert.equal(byAd.find((r) => r.key === "120001")?.leadsCrm, 2);
+  assert.equal(byAd.find((r) => r.key === "120001")?.accountId, "act_1");
+
+  // --- filtro por campaña (substring, sin acentos ni mayúsculas)
+  const onlyB = buildMetaReport({ ...base, groupBy: "ad", campaign: "buyer" });
+  assert.deepEqual(onlyB.map((r) => r.key), ["120003"]);
+  const onlyBMonth = buildMetaReport({ ...base, groupBy: "month", campaign: "DEMOGRAFIA" });
+  assert.equal(onlyBMonth.length, 1);
+  assert.equal(onlyBMonth[0].spend, 150, "el filtro de campaña acota también los totales por mes");
+
+  // --- includeIds: solo con la bandera, distintos, con tope
+  const noIds = buildMetaReport({ ...base, groupBy: "campaign" });
+  assert.equal(noIds[0].oppIds, undefined);
+  const withIds = buildMetaReport({ ...base, groupBy: "campaign", includeIds: true });
+  const campA = withIds.find((r) => r.key === "camp-a")!;
+  assert.deepEqual([...campA.oppIds!].sort(), ["a1", "a2", "a3"]);
+  assert.deepEqual([...campA.contactIds!].sort(), ["c-a1", "c-a2", "c-a3"]);
+  const many = Array.from({ length: 80 }, (_, i) =>
+    opp({ id: `m${i}`, adId: "120001", contactId: "c-shared", createdAt: "2026-08-12T12:00:00.000Z" })
+  );
+  const cappedRow = buildMetaReport({ ...base, opportunities: many, groupBy: "ad", includeIds: true }).find((r) => r.key === "120001")!;
+  assert.equal(cappedRow.leadsCrm, 80, "el conteo no se topa");
+  assert.equal(cappedRow.oppIds!.length, 50, "los ids sí (cap 50)");
+  assert.deepEqual(cappedRow.contactIds, ["c-shared"], "contactIds distintos");
+
+  // --- moneda mixta: la fila total lleva "?" y sin costos; por campaña cada una con la suya
+  const mixedIdx = buildMetaIndex(meta);
+  const mixedTotal = buildMetaReport({ opportunities: opps, meta, index: mixedIdx, range, pautaContacts, groupBy: "none" });
+  assert.equal(mixedTotal[0].currency, "?");
+  assert.equal(mixedTotal[0].spend, 460, "el gasto se suma igual; la UI sabe por currency que no es comparable");
+  assert.equal(mixedTotal[0].cpl, null);
+  assert.equal(mixedTotal[0].cpm, null);
+  const mixedCamp = buildMetaReport({ opportunities: opps, meta, index: mixedIdx, range, pautaContacts, groupBy: "campaign" });
+  assert.equal(mixedCamp.find((r) => r.key === "camp-usd")?.currency, "USD");
+
+  // --- defaultCurrency y un ad fuera de la jerarquía NO ensucia la moneda
+  // `mxn` solo recorta las filas diarias: sus CUENTAS siguen siendo dos (MXN y
+  // USD), así que la moneda por defecto solo existe con una cuenta.
+  const mxnOnly: MetaAdsData = { ...mxn, accounts: [meta.accounts[0]] };
+  assert.equal(defaultCurrency(mxn), null, "dos cuentas de monedas distintas: sin moneda por defecto");
+  assert.equal(defaultCurrency(mxnOnly), "MXN");
+  assert.equal(defaultCurrency(meta), null);
+  const orphanDaily: MetaAdsData = {
+    ...mxnOnly,
+    daily: [...mxn.daily, { adId: "999999", date: "2026-08-15", spend: 5, impressions: 10, reach: 9, clicks: 1, linkClicks: 1, leadsForm: 0, leadsMsg: 0 }],
+  };
+  const orphanSummary = buildCostSummary({ opportunities: opps, meta: orphanDaily, index: buildMetaIndex(orphanDaily), range, pautaContacts });
+  assert.equal(orphanSummary.mixedCurrency, false, "un ad borrado (sin jerarquía) hereda la única moneda de la cuenta");
+  assert.equal(orphanSummary.spend, 455);
+  const orphanTotal = buildMetaReport({ opportunities: opps, meta: orphanDaily, index: buildMetaIndex(orphanDaily), range, pautaContacts, groupBy: "none" });
+  assert.equal(orphanTotal[0].currency, "MXN");
 
   console.log("✅ verify:meta-attribution OK");
 }
