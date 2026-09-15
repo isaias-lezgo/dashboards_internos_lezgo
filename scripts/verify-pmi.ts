@@ -198,9 +198,10 @@ function monthMain() {
     ],
     pautas: [],
   };
-  const pmi = buildPmiMonth(input, "2026-09");
+  const pmi = buildPmiMonth(input, "2026-09", new Date("2026-09-15T18:00:00.000Z"));
 
   assert.equal(pmi.weeks.length, 4);
+  assert.equal(pmi.today, "2026-09-15", "hoy en día local, para marcar lo que no ha ocurrido");
   assert.deepEqual(pmi.advisors.map((a) => a.name), ["Arely", "Monica"], "orden alfabético, activos del mes");
   assert.equal(pmi.activeAdvisors, 2);
   assert.equal(pmi.unassigned?.total.leads, 1, "'Sin asignar' aparece porque no es cero");
@@ -260,7 +261,8 @@ function yearMain() {
     appointments: [],
     pautas: [],
   };
-  const y = buildPmiYear(input, 2026);
+  const y = buildPmiYear(input, 2026, new Date("2026-09-15T18:00:00.000Z"));
+  assert.equal(y.today, "2026-09-15");
   const arely = y.advisors.find((a) => a.name === "Arely")!;
   assert.equal(arely.byMonth.length, 12);
   assert.equal(arely.byMonth[4].apartados, 1, "mayo");

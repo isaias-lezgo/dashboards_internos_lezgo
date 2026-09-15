@@ -75,6 +75,9 @@ function YearRanking({ title, rows, objective }: { title: string; rows: PmiYearR
 export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: PmiIndicator, ids: string[], label: string) => void }) {
   const [metricKey, setMetricKey] = useState<Metric>("apartados")
   const metric = METRICS.find((m) => m.key === metricKey)!
+  // Un mes que empieza después de hoy no ha ocurrido: "—", no 0.
+  const futureMonth = (i: number) => `${year.year}-${String(i + 1).padStart(2, "0")}-01` > year.today
+  const futureCell = (key: number) => <td key={key} className="px-1 py-0.5 text-right text-muted-foreground/60">—</td>
   const fmtAvg = (v: number) => (metric.money ? fmtMxn(v) : v.toLocaleString("es-MX", { maximumFractionDigits: 1 }))
   return (
     <>
@@ -105,7 +108,7 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
                 {year.advisors.map((a) => (
                   <tr key={a.name} className="border-t border-border/60">
                     <td className="py-1 pr-2 font-medium">{a.name}</td>
-                    {a.byMonth.map((c, i) => <Cell key={i} c={c} metric={metric} onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · ${MONTHS[i]} ${year.year}`)} />)}
+                    {a.byMonth.map((c, i) => futureMonth(i) ? futureCell(i) : <Cell key={i} c={c} metric={metric} onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · ${MONTHS[i]} ${year.year}`)} />)}
                     {a.byQuarter.map((c, q) => <Cell key={`q${q}`} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · T${q + 1} ${year.year}`)} />)}
                     <Cell c={a.total} metric={metric} strong onClick={() => onCell(metric.drill, a.total.ids[metric.drill], `${a.name} · ${year.year}`)} />
                     <td className="py-1 px-1 text-right">{a.mesesActivo}</td>
@@ -114,14 +117,14 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
                 ))}
                 <tr className="border-t-2 border-border font-semibold">
                   <td className="py-1 pr-2">Equipo</td>
-                  {year.team.byMonth.map((c, i) => <Cell key={i} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `Equipo · ${MONTHS[i]} ${year.year}`)} />)}
+                  {year.team.byMonth.map((c, i) => futureMonth(i) ? futureCell(i) : <Cell key={i} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `Equipo · ${MONTHS[i]} ${year.year}`)} />)}
                   {year.team.byQuarter.map((c, q) => <Cell key={`q${q}`} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `Equipo · T${q + 1} ${year.year}`)} />)}
                   <Cell c={year.team.total} metric={metric} strong onClick={() => onCell(metric.drill, year.team.total.ids[metric.drill], `Equipo · ${year.year}`)} />
                   <td /><td />
                 </tr>
                 <tr className="text-muted-foreground">
                   <td className="py-1 pr-2">% meta</td>
-                  {year.team.pctMeta.map((p, i) => <td key={i} className="px-1 py-1 text-right">{fmtPct(p ? p[metric.key] : null)}</td>)}
+                  {year.team.pctMeta.map((p, i) => <td key={i} className="px-1 py-1 text-right">{futureMonth(i) ? "—" : fmtPct(p ? p[metric.key] : null)}</td>)}
                   <td colSpan={7} />
                 </tr>
               </tbody>

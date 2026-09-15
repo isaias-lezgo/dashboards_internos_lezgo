@@ -24,11 +24,13 @@ const ROWS: PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "
 // semáforo DIARIO (objetivo mes ÷ 28), con el total por semana. Es la tabla
 // que el asesor llenaba a mano.
 export function PmiAdvisorSheet({
-  slice, weeks, days, onCell,
+  slice, weeks, days, today, onCell,
 }: {
   slice: PmiSlice
   weeks: PmiWeek[]
   days: string[]
+  /** Día local de hoy: los días posteriores no han ocurrido y se muestran vacíos. */
+  today: string
   onCell: (kind: PmiIndicator, ids: string[], dayLabel: string) => void
 }) {
   const dayIndex = new Map(days.map((d, i) => [d, i]))
@@ -76,6 +78,9 @@ export function PmiAdvisorSheet({
                           const c = slice.byDay[dayIndex.get(d)!]
                           const v = c[kind]
                           const ids = c.ids[kind]
+                          if (d > today) {
+                            return <td key={d} className={cn("px-0.5 py-0.5 text-center text-muted-foreground/40", i === 0 && "border-l border-border/60")}>·</td>
+                          }
                           return (
                             <td key={d} className={cn("px-0.5 py-0.5", i === 0 && "border-l border-border/60")}>
                               <button type="button" disabled={ids.length === 0}

@@ -20,6 +20,9 @@ import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, 
 import { PmiWeekTable } from "./pmi-week-table"
 import { PmiAdvisorSheet } from "./pmi-advisor-sheet"
 import { PmiYearView } from "./pmi-year-table"
+import { ExportReportButton } from "./export-report-button"
+import { buildPmiReport } from "@/lib/pmi-report"
+import type { ReportInput } from "@/lib/report"
 
 interface PmiDashboardProps {
   contacts: Contact[]
@@ -151,6 +154,12 @@ export function PmiDashboard(props: PmiDashboardProps) {
     [appointments, contactById, oppById],
   )
 
+  const buildReport = useCallback((): ReportInput => {
+    if (view === "year") return buildPmiReport({ kind: "year", year: pmiYear ?? buildPmiYear(input, year) }, props.locationName)
+    if (selected) return buildPmiReport({ kind: "month-advisor", pmi, advisor: selected }, props.locationName)
+    return buildPmiReport({ kind: "month-team", pmi }, props.locationName)
+  }, [view, pmiYear, input, year, selected, pmi, props.locationName])
+
   const periodTitle = view === "year" ? String(year) : monthLabel(month)
   const scopeTitle = selected ? selected.name : "Equipo"
   const o = slice.objectives.month
@@ -191,7 +200,9 @@ export function PmiDashboard(props: PmiDashboardProps) {
             ))}
           </div>
         )}
-        <div className="ml-auto" data-slot="pmi-export" />
+        <div className="ml-auto">
+          <ExportReportButton getInput={buildReport} />
+        </div>
       </div>
 
       {view === "month" && (
@@ -223,13 +234,14 @@ export function PmiDashboard(props: PmiDashboardProps) {
             <ConversionStrip conversions={slice.conversions} />
           </PmiSection>
           {selected && (
-            <PmiAdvisorSheet slice={selected} weeks={pmi.weeks} days={pmi.days}
+            <PmiAdvisorSheet slice={selected} weeks={pmi.weeks} days={pmi.days} today={pmi.today}
               onCell={(kind, ids, dayLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${selected.name}`, dayLabel)} />
           )}
 
           <PmiWeekTable
             slice={slice}
             weeks={pmi.weeks}
+            today={pmi.today}
             onCell={(kind, ids, weekLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${scopeTitle}`, `${weekLabel} · ${monthLabel(month)}`)}
           />
           {advisor === TEAM && (

@@ -21,7 +21,7 @@ export interface ReportSection {
 }
 
 export interface ReportInput {
-  reportType: "marketing" | "ventas"
+  reportType: "marketing" | "ventas" | "pmi"
   title: string
   /** Sub-account / location name, used in the download filename. */
   locationName?: string
@@ -127,7 +127,7 @@ export function buildReportSpec(input: ReportInput, ai: ReportAiResult | null): 
   }
 
   // e.g. "Reporte Marketing Lezgo Suite - 15 de Jun 2:02pm"
-  const tipoLabel = input.reportType === "marketing" ? "Marketing" : "Ventas"
+  const tipoLabel = input.reportType === "marketing" ? "Marketing" : input.reportType === "ventas" ? "Ventas" : "Desempeño"
   const location = input.locationName?.trim() || "Lezgo Suite"
   const filename = `Reporte ${tipoLabel} ${location} - ${reportStamp()}`
 
@@ -138,7 +138,9 @@ export function buildReportSpec(input: ReportInput, ai: ReportAiResult | null): 
     subtitle:
       input.reportType === "marketing"
         ? "Reporte de adquisición: fuentes, pautas, atribución y resultados de campañas."
-        : "Reporte comercial: embudo, conversión, citas y análisis de pérdidas.",
+        : input.reportType === "ventas"
+          ? "Reporte comercial: embudo, conversión, citas y análisis de pérdidas."
+          : "Reporte de desempeño (PMI): indicadores por asesor contra objetivos, conversiones y ranking.",
     cover: true,
     filename,
     blocks,

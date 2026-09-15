@@ -26,12 +26,15 @@ function cellValue(c: PmiCounts, row: Row): number {
 }
 
 export function PmiWeekTable({
-  slice, weeks, onCell,
+  slice, weeks, today, onCell,
 }: {
   slice: PmiSlice
   weeks: PmiWeek[]
+  /** Día local de hoy: una semana que empieza después no ha ocurrido y se muestra como "—". */
+  today: string
   onCell: (kind: PmiIndicator, ids: string[], weekLabel: string) => void
 }) {
+  const isFuture = (w: PmiWeek) => w.start > today
   return (
     <DashboardCard>
       <ChartCardHeader
@@ -46,7 +49,7 @@ export function PmiWeekTable({
                 <th className="py-1.5 pr-2 text-left font-medium">Indicador</th>
                 <th className="py-1.5 px-2 text-right font-medium">Obj. semana</th>
                 {weeks.map((w) => (
-                  <th key={w.index} className="py-1.5 px-2 text-right font-medium">
+                  <th key={w.index} className={cn("py-1.5 px-2 text-right font-medium", isFuture(w) && "opacity-50")}>
                     <span className="block">Semana {w.index + 1}</span>
                     <span className="block font-normal normal-case">{w.label}</span>
                   </th>
@@ -71,6 +74,9 @@ export function PmiWeekTable({
                       const c = slice.byWeek[w.index]
                       const v = cellValue(c, row)
                       const ids = c.ids[drillKind]
+                      if (isFuture(w)) {
+                        return <td key={w.index} className="py-1 px-2 text-right text-muted-foreground/60">—</td>
+                      }
                       return (
                         <td key={w.index} className="py-1 px-1 text-right">
                           <button

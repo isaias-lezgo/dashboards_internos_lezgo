@@ -288,6 +288,9 @@ export interface PmiMonth {
   month: string;
   weeks: PmiWeek[];
   days: string[];
+  // Hoy en día local. Un día o semana posterior no ha ocurrido: sus ceros no
+  // son resultados, y la UI y el PDF los muestran como "—" en vez de 0.
+  today: string;
   team: PmiSlice;
   advisors: PmiAdvisor[];
   unassigned: PmiSlice | null;
@@ -355,8 +358,9 @@ function ranking(advisors: PmiAdvisor[], kind: "apartados" | "cierres"): PmiRank
     .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
 }
 
-export function buildPmiMonth(input: PmiInput, month: string): PmiMonth {
+export function buildPmiMonth(input: PmiInput, month: string, now: Date = new Date()): PmiMonth {
   const days = monthDays(month);
+  const today = localDay(now.toISOString());
   const weeks = monthWeeks(month);
   const events = collectEvents(input, days[0], days[days.length - 1]);
 
@@ -383,6 +387,7 @@ export function buildPmiMonth(input: PmiInput, month: string): PmiMonth {
     month,
     weeks,
     days,
+    today,
     team,
     advisors,
     unassigned,
@@ -417,6 +422,8 @@ export interface PmiYearRankingRow {
 
 export interface PmiYear {
   year: number;
+  // Hoy en día local: un mes que empieza después no ha ocurrido.
+  today: string;
   advisors: PmiYearAdvisor[];
   team: {
     byMonth: PmiCounts[];
@@ -466,7 +473,8 @@ function yearRanking(advisors: PmiYearAdvisor[], kind: "apartados" | "cierres"):
     .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
 }
 
-export function buildPmiYear(input: PmiInput, year: number): PmiYear {
+export function buildPmiYear(input: PmiInput, year: number, now: Date = new Date()): PmiYear {
+  const today = localDay(now.toISOString());
   const events = collectEvents(input, `${year}-01-01`, `${year}-12-31`);
   const monthOf = (day: string) => Number(day.slice(5, 7)) - 1;
 
@@ -516,6 +524,7 @@ export function buildPmiYear(input: PmiInput, year: number): PmiYear {
 
   return {
     year,
+    today,
     advisors,
     team: { byMonth: teamByMonth, byQuarter: quarters(teamByMonth), total: sumCounts(teamByMonth), activeByMonth, pctMeta },
     rankingApartados: yearRanking(advisors, "apartados"),

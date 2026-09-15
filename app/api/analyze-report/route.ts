@@ -10,7 +10,7 @@ interface SectionPayload {
 }
 
 interface AnalyzeReportBody {
-  reportType: "marketing" | "ventas";
+  reportType: "marketing" | "ventas" | "pmi";
   periodLabel?: string;
   filtersLabel?: string;
   kpis: { label: string; value: string }[];
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   }
 
   const userContent = [
-    `Tipo de reporte: ${body.reportType === "marketing" ? "Marketing (adquisición)" : "Ventas (comercial)"}`,
+    `Tipo de reporte: ${body.reportType === "marketing" ? "Marketing (adquisición)" : body.reportType === "ventas" ? "Ventas (comercial)" : "Desempeño (PMI: indicadores por asesor contra objetivos fijos)"}`,
     `Periodo: ${body.periodLabel ?? "Todo el historial"}`,
     // Sin esto el modelo lee un subconjunto filtrado como si fuera el total del
     // periodo y concluye caídas que no existen.
