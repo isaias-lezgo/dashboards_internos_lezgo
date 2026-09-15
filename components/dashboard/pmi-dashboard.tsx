@@ -12,6 +12,7 @@ import {
 import { DashboardShell, ScopePill } from "./dashboard-ui"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
 import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn } from "./pmi-ui"
+import { PmiWeekTable } from "./pmi-week-table"
 
 interface PmiDashboardProps {
   contacts: Contact[]
@@ -151,7 +152,12 @@ export function PmiDashboard(props: PmiDashboardProps) {
             hint={<ScopePill label="Metas" tooltip="Metas de conversión del PMI: 40 % / 60 % / 75 % / 100 %. Sin denominador la conversión se muestra como —, no como 0 %." />}>
             <ConversionStrip conversions={slice.conversions} />
           </PmiSection>
-          {/* Task 9–11 agregan aquí: semana, por asesor, rankings, tendencia, cuadrícula diaria */}
+          <PmiWeekTable
+            slice={slice}
+            weeks={pmi.weeks}
+            onCell={(kind, ids, weekLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${scopeTitle}`, `${weekLabel} · ${monthLabel(month)}`)}
+          />
+          {/* Task 10–11 */}
         </>
       )}
 
