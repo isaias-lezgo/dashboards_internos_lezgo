@@ -448,10 +448,11 @@ the marketing charts and the AI tools. Do not re-inline this logic anywhere.
 
 ### Meta Ads
 
-Spec: `docs/superpowers/specs/2026-09-14-meta-ads-conexion-y-sync-design.md` (port de la
-entrega ① de DRT; las razones que no cambian viven en el spec de DRT). Entrega ① —
-conexión, dataset en el sync y cruce — implementada; ② (KPIs y tabla por campaña en
-Marketing) tiene spec pendiente.
+Spec ①: `docs/superpowers/specs/2026-09-14-meta-ads-conexion-y-sync-design.md` (port de la
+entrega ① de DRT; las razones que no cambian viven en el spec de DRT). Spec ②:
+`docs/superpowers/specs/2026-09-14-meta-ads-inversion-y-asistente-design.md`. Entrega ① —
+conexión, dataset en el sync y cruce — y ② — sección "Inversión en pauta" en Marketing y
+PDF, y el asistente — implementadas.
 
 - **Una conexión por despliegue, cuentas por proyecto.** `meta_connection` tiene PK
   `product` (sin `client_id`): un admin de Lezgo conecta UNA vez con la empresa de
@@ -499,6 +500,23 @@ Marketing) tiene spec pendiente.
   conecta desde producción y el dev local lee la misma fila de Neon. Previews tampoco.
 - El riel de la pantalla de carga cuenta `meta` solo si el paso se emitió
   (`loading-screen.tsx`); si no, un proyecto sin Meta nunca llegaría al 100 %.
+- **Un solo motor para los tres consumidores**: `buildMetaReport(groupBy)` en
+  `lib/meta-attribution.ts` alimenta la tabla de "Inversión en pauta"
+  (`meta-investment-section.tsx`, `groupBy: "campaign"`), la sección del PDF
+  (`buildMetaReportSection`, mismo archivo) y la herramienta `meta_ads_report` del
+  asistente. Si un número difiere entre los tres, el bug está en el consumidor, no en
+  el cálculo. `useMetaInvestment` memoiza índice, resumen y filas por referencia de
+  `metaAds`; Marketing lo llama una vez y lo comparte con `buildReport()`.
+- **El gasto no se recorta por atributo.** Con Asesor/Status/Origen/Tipo de pauta
+  activos, `gasto ÷ leads de un asesor` sería un CPL falso: la sección muestra Leads
+  CRM y Ganadas recortados y **CPL/CPA en `—`** (`costsSuppressed`), y el `ScopePill`
+  lo dice. El asistente tiene la misma regla (regla 11 del prompt).
+- **Sin `metaAds` la sección no se dibuja** (ni en pantalla ni en el PDF) y el
+  resumen del asistente dice "No conectado": la píldora del header es el único
+  llamado a conectar.
+- Un ad borrado/archivado sigue teniendo insights pero ya no está en `/ads`: sin
+  jerarquía, `currencyOf` hereda la única moneda de las cuentas (`defaultCurrency`),
+  para que un ad huérfano no dispare `mixedCurrency` y apague los costos.
 - **Conectado en producción el 2026-09-14** (usuario del sistema, token sin caducidad),
   primer OAuth de esta app de punta a punta. Primer sync real: Lezgo Suite,
   `act_739107949183573`, ventana 2025-09 → 2026-09, 27 campañas / 132 ads / 2 653 filas
