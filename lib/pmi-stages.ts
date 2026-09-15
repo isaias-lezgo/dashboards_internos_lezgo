@@ -16,10 +16,12 @@ export const MILESTONES: readonly Milestone[] = ["perfilado", "apartado", "cierr
 // una etapa de cierre también es apartado y perfilado.
 const PERFILADO_TERMS = [
   "calificado", "cita", "visita", "inversion futura", "cotizacion",
-  "apartado", "mensualidades", "escritura", "ganad",
+  "apartado", "mensualidades", "escritura", "ganad", "entregad",
 ];
-const APARTADO_TERMS = ["apartado", "mensualidades", "escritura", "ganad"];
-const CIERRE_TERMS = ["escritura", "ganad"];
+const APARTADO_TERMS = ["apartado", "mensualidades", "escritura", "ganad", "entregad"];
+// "Entregado" (Yconia, 11.) va después de Negocio Ganado: es un cierre ya
+// escriturado y entregado, no una etapa aparte.
+const CIERRE_TERMS = ["escritura", "ganad", "entregad"];
 
 const LOST_STAGE = "negocio perdido";
 const LAST_STAGE_FIELD = "Última Etapa en el Pipeline";
@@ -27,7 +29,7 @@ const LAST_STAGE_FIELD = "Última Etapa en el Pipeline";
 export function normalizeStage(name: string): string {
   return name
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
 }

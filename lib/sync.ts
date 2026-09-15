@@ -30,6 +30,9 @@ import { readMetaConnectionWithToken, readProjectAccounts } from "@/lib/meta-con
 import { fetchMetaAds, MetaApiError } from "@/lib/meta-client";
 import { historyWindow } from "@/lib/meta-normalize";
 import { oppAdId, PANEL_TIME_ZONE } from "@/lib/meta-attribution";
+import { reconcileMilestones } from "@/lib/pmi-ledger";
+import { readMilestones, insertMilestones } from "@/lib/pmi-ledger-store";
+import { isDbConfigured } from "@/lib/db";
 import type {
   Contact,
   Opportunity,
@@ -621,6 +624,31 @@ export async function syncProject(
           if (!opp.originPlatform) {
             opp.originPlatform = cfString(contact.customFieldsResolved?.["Origen de Lead"]);
           }
+        }
+      }
+
+      // ── Bitácora de hitos del PMI ─────────────────────────────────────────
+      // Un solo lugar sirve al camino en vivo y al refresco en segundo plano.
+      // La base no es una dependencia: si falla, las oportunidades salen con
+      // hitos fechados en updatedAt y marcados `estimated`, no se inserta nada
+      // (la siguiente corrida con base sana hace el backfill real) y el sync
+      // sigue. Sin DATABASE_URL (dev sin base) se toma el mismo camino.
+      {
+        const now = new Date();
+        let byOpportunity;
+        try {
+          if (!isDbConfigured()) throw new Error("DATABASE_URL no configurada");
+          const existing = await readMilestones(client);
+          const rec = reconcileMilestones(existing, opportunities, now);
+          await insertMilestones(client, rec.inserts);
+          byOpportunity = rec.byOpportunity;
+        } catch (err) {
+          console.error(`[pmi] bitácora de hitos no disponible para ${client.id}:`, err);
+          byOpportunity = reconcileMilestones([], opportunities, now).byOpportunity;
+        }
+        for (const opp of opportunities) {
+          const m = byOpportunity.get(opp.id);
+          if (m) opp.milestones = m;
         }
       }
 

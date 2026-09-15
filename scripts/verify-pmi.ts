@@ -37,7 +37,7 @@ function stagesMain() {
   has("09. Siguiente Escritura", "perfilado", "apartado", "cierre");
   has("09. Negocio Ganado", "perfilado", "apartado", "cierre");
   has("10. Negocio Ganado", "perfilado", "apartado", "cierre");
-  has("11. Entregado");                                // fuera del vocabulario, sin hitos
+  has("11. Entregado", "perfilado", "apartado", "cierre"); // entregado = cerrado y escriturado
   has("Lead Recibido (Ventas)");
   has("1er Contacto");
   has("01. Contacto En Seguimiento");
