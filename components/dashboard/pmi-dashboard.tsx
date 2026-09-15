@@ -2,16 +2,21 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts"
 import { Button } from "@/components/ui/button"
+import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
 import { cn } from "@/lib/utils"
 import type { Appointment, Call, Contact, Message, Opportunity, Pauta, Task } from "@/lib/types"
 import {
-  buildPmiMonth, buildPmiYear, currentMonth, monthLabel, shiftMonth,
-  type PmiIndicator, type PmiSlice,
+  buildPmiMonth, buildPmiYear, currentMonth, monthLabel, shiftMonth, semaphore, PMI_OBJECTIVES,
+  type PmiIndicator, type PmiRankingRow, type PmiSlice, type PmiWeek,
 } from "@/lib/pmi"
-import { DashboardShell, ScopePill } from "./dashboard-ui"
+import {
+  DashboardShell, DashboardCard, ChartCardHeader, ChartCardContent, ChartEmpty, ScopePill,
+  NonZeroTooltipContent, CHART_TICK, CHART_GRID_STROKE, STRUCTURAL_NAVY, BRAND_AMBER,
+} from "./dashboard-ui"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
-import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn } from "./pmi-ui"
+import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
 import { PmiWeekTable } from "./pmi-week-table"
 
 interface PmiDashboardProps {
@@ -37,6 +42,69 @@ export const PMI_RULES = {
   apartados: "Primera vez que la oportunidad llegó a Apartado o una etapa posterior. Un apartado que después se cae sigue contando en su mes.",
   cierres: "Primera vez que la oportunidad llegó a Proceso de Escritura, Siguiente Escritura, Negocio Ganado o Entregado.",
 } as const
+
+const COUNT_KEYS = ["leads", "perfilamientos", "citas", "apartados", "cierres"] as const
+
+function RankingChart({
+  title, rows, objective, onBar,
+}: {
+  title: string
+  rows: PmiRankingRow[]
+  objective: number
+  onBar: (name: string) => void
+}) {
+  const data = rows.map((r) => ({ name: r.name, monto: r.monto, count: r.count }))
+  return (
+    <DashboardCard>
+      <ChartCardHeader title={title}
+        actions={<ScopePill label="Meta" tooltip={`La línea marca la meta mensual por asesor: ${fmtMxn(objective)}.`} />} />
+      <ChartCardContent>
+        {data.length === 0 ? (
+          <ChartEmpty message="Sin asesores con actividad en el mes." />
+        ) : (
+          <ChartContainer config={{ monto: { label: "Monto" } }} className="h-[220px] w-full">
+            <BarChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke={CHART_GRID_STROKE} />
+              <XAxis dataKey="name" tick={CHART_TICK} axisLine={false} tickLine={false} interval={0}
+                tickFormatter={(v: string) => v.split(" ")[0]} />
+              <YAxis tick={CHART_TICK} axisLine={false} tickLine={false} width={64}
+                tickFormatter={(v: number) => `$${(v / 1_000_000).toLocaleString("es-MX", { maximumFractionDigits: 1 })}M`} />
+              <ReferenceLine y={objective} stroke={BRAND_AMBER} strokeDasharray="4 4"
+                label={{ value: "META", position: "insideTopRight", fontSize: 10, fill: BRAND_AMBER }} />
+              <ChartTooltip content={<NonZeroTooltipContent formatter={(v) => fmtMxn(Number(v))} />} />
+              <Bar dataKey="monto" name="Monto" fill={STRUCTURAL_NAVY} radius={[4, 4, 0, 0]} cursor="pointer"
+                onClick={(d: { name?: string }) => { if (d?.name) onBar(String(d.name)) }} />
+            </BarChart>
+          </ChartContainer>
+        )}
+      </ChartCardContent>
+    </DashboardCard>
+  )
+}
+
+function WeekTrend({ title, weeks, values, onPoint }: { title: string; weeks: PmiWeek[]; values: number[]; onPoint: (i: number) => void }) {
+  const data = weeks.map((w, i) => ({ label: `Semana ${i + 1}`, value: values[i], index: i }))
+  return (
+    <DashboardCard>
+      <ChartCardHeader title={title} />
+      <ChartCardContent>
+        <ChartContainer config={{ value: { label: title } }} className="h-[180px] w-full">
+          <LineChart data={data} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke={CHART_GRID_STROKE} />
+            <XAxis dataKey="label" tick={CHART_TICK} axisLine={false} tickLine={false} />
+            <YAxis tick={CHART_TICK} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+            <ChartTooltip content={<NonZeroTooltipContent />} />
+            <Line type="monotone" dataKey="value" name={title} stroke={STRUCTURAL_NAVY} strokeWidth={2}
+              dot={{ r: 4, fill: STRUCTURAL_NAVY, strokeWidth: 0, cursor: "pointer" }}
+              activeDot={{ r: 6, cursor: "pointer", onClick: (d: unknown) => { const idx = (d as { payload?: { index: number } })?.payload?.index; if (idx !== undefined) onPoint(idx) } }}>
+              <LabelList dataKey="value" position="top" fontSize={11} className="fill-foreground" />
+            </Line>
+          </LineChart>
+        </ChartContainer>
+      </ChartCardContent>
+    </DashboardCard>
+  )
+}
 
 export function PmiDashboard(props: PmiDashboardProps) {
   const { contacts, opportunities, appointments, pautas, tasks, calls, messages, locationId } = props
@@ -157,7 +225,72 @@ export function PmiDashboard(props: PmiDashboardProps) {
             weeks={pmi.weeks}
             onCell={(kind, ids, weekLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${scopeTitle}`, `${weekLabel} · ${monthLabel(month)}`)}
           />
-          {/* Task 10–11 */}
+          {advisor === TEAM && (
+            <DashboardCard>
+              <ChartCardHeader title="Por asesor" total={pmi.activeAdvisors}
+                actions={<ScopePill label="Activos" tooltip="Asesores con al menos un registro en el mes. 'Sin asignar' agrupa lo que no tiene asesor y no entra al ranking." />} />
+              <ChartCardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-xs tabular-nums">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <th className="py-1.5 pr-2 text-left font-medium">Asesor</th>
+                        {COUNT_KEYS.map((k) => (
+                          <th key={k} className="py-1.5 px-2 text-right font-medium">{INDICATOR_LABELS[k]}</th>
+                        ))}
+                        <th className="py-1.5 px-2 text-right font-medium">$ Apartados</th>
+                        <th className="py-1.5 px-2 text-right font-medium">$ Cierres</th>
+                        <th className="py-1.5 px-2 text-right font-medium">L→P</th>
+                        <th className="py-1.5 px-2 text-right font-medium">P→C</th>
+                        <th className="py-1.5 px-2 text-right font-medium">C→A</th>
+                        <th className="py-1.5 pl-2 text-right font-medium">A→Ci</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...pmi.advisors, ...(pmi.unassigned ? [{ name: "Sin asignar", ...pmi.unassigned }] : [])].map((a) => {
+                        const clickable = a.name !== "Sin asignar"
+                        return (
+                          <tr key={a.name}
+                            className={cn("border-t border-border/60", clickable && "cursor-pointer hover:bg-primary/5")}
+                            onClick={clickable ? () => setAdvisor(a.name) : undefined}>
+                            <td className="py-1.5 pr-2 font-medium">{a.name}</td>
+                            {COUNT_KEYS.map((k) => (
+                              <td key={k} className="py-1 px-1 text-right">
+                                <span className={cn("inline-block rounded px-1.5 py-0.5", toneClass(semaphore(a.total[k], a.objectives.month[k])))}>{fmtInt(a.total[k])}</span>
+                              </td>
+                            ))}
+                            <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoApartados)}</td>
+                            <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoCierres)}</td>
+                            <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.leadPerfil)}</td>
+                            <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.perfilCita)}</td>
+                            <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.citaApartado)}</td>
+                            <td className="py-1.5 pl-2 text-right">{fmtPct(a.conversions.apartadoCierre)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </ChartCardContent>
+            </DashboardCard>
+          )}
+
+          {advisor === TEAM && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <RankingChart title="Ranking de apartados" rows={pmi.rankingApartados} objective={PMI_OBJECTIVES.montoApartados}
+                onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.apartados > 0) openDrill("apartados", a.total.ids.apartados, `Apartados · ${name}`, monthLabel(month)) }} />
+              <RankingChart title="Ranking de cierres" rows={pmi.rankingCierres} objective={PMI_OBJECTIVES.montoCierres}
+                onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `Cierres · ${name}`, monthLabel(month)) }} />
+            </div>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <WeekTrend title="Perfilamientos por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.perfilamientos)}
+              onPoint={(i) => { const ids = slice.byWeek[i].ids.perfilamientos; if (ids.length) openDrill("perfilamientos", ids, `Perfilamientos · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
+            <WeekTrend title="Citas efectivas por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.citas)}
+              onPoint={(i) => { const ids = slice.byWeek[i].ids.citas; if (ids.length) openDrill("citas", ids, `Citas efectivas · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
+          </div>
+          {/* Task 11 */}
         </>
       )}
 
