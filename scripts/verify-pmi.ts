@@ -11,7 +11,7 @@ import {
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
   monthWeeks, monthDays, semaphore, conversions, collectEvents, emptyCounts, addEvent, sumCounts,
-  PMI_OBJECTIVES, scaleObjectives, UNASSIGNED,
+  PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth,
 } from "../lib/pmi";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -171,7 +171,75 @@ function engineMain() {
   assert.equal(acc.montoApartados, 3_988_119.69); assert.deepEqual(acc.ids.apartados, ["o1"]);
   const total = sumCounts([acc, acc]);
   assert.equal(total.leads, 4); assert.deepEqual(total.ids.leads, ["c2", "c3", "c2", "c3"]);
-  void pad;
+}
+
+function monthMain() {
+  assert.equal(monthLabel("2026-09"), "Septiembre 2026");
+  assert.equal(shiftMonth("2026-01", -1), "2025-12");
+  assert.equal(shiftMonth("2026-12", 1), "2027-01");
+
+  const input = {
+    contacts: [
+      ...Array.from({ length: 29 }, (_, i) => contact({ id: `a${i}`, assignedTo: "Arely", createdAt: `2026-09-${pad(1 + (i % 20))}T15:00:00.000Z` })),
+      ...Array.from({ length: 31 }, (_, i) => contact({ id: `m${i}`, assignedTo: "Monica", createdAt: `2026-09-${pad(1 + (i % 12))}T15:00:00.000Z` })),
+      contact({ id: "x1", createdAt: "2026-09-05T15:00:00.000Z" }), // sin asesor
+    ],
+    opportunities: [
+      opp({ id: "o1", contactId: "a0", assignedTo: "Arely", stage: "06. Apartado", value: 3_988_119.69,
+        milestones: { perfilado: "2026-09-02T15:00:00.000Z", apartado: "2026-09-03T15:00:00.000Z" } }),
+      opp({ id: "o2", contactId: "a1", assignedTo: "Arely", stage: "02. Cliente Calificado",
+        milestones: { perfilado: "2026-09-09T15:00:00.000Z", estimated: true } }),
+      opp({ id: "o3", contactId: "m0", assignedTo: "Monica", stage: "08. Proceso de Escritura", value: 3_265_823.51,
+        milestones: { perfilado: "2026-08-10T15:00:00.000Z", apartado: "2026-08-12T15:00:00.000Z", cierre: "2026-09-16T15:00:00.000Z" } }),
+    ],
+    appointments: [
+      appt({ id: "ap1", assignedTo: "Arely", startTime: "2026-09-08T16:00:00-06:00" }),
+      appt({ id: "ap2", assignedTo: "Arely", startTime: "2026-09-22T16:00:00-06:00" }),
+    ],
+    pautas: [],
+  };
+  const pmi = buildPmiMonth(input, "2026-09");
+
+  assert.equal(pmi.weeks.length, 4);
+  assert.deepEqual(pmi.advisors.map((a) => a.name), ["Arely", "Monica"], "orden alfabético, activos del mes");
+  assert.equal(pmi.activeAdvisors, 2);
+  assert.equal(pmi.unassigned?.total.leads, 1, "'Sin asignar' aparece porque no es cero");
+
+  const arely = pmi.advisors[0];
+  assert.equal(arely.total.leads, 29);
+  assert.equal(arely.total.perfilamientos, 2);
+  assert.equal(arely.total.citas, 2);
+  assert.equal(arely.total.apartados, 1);
+  assert.equal(arely.total.montoApartados, 3_988_119.69);
+  assert.equal(arely.byWeek[0].apartados, 1, "3 de sept cae en la semana 1 - 6");
+  assert.equal(arely.byWeek[3].citas, 1, "22 de sept cae en 21 - 30");
+  assert.equal(arely.byDay[2].apartados, 1, "byDay[2] es el día 3");
+  assert.equal(arely.byDay.length, 30);
+  assert.equal(arely.objectives.month.leads, 40);
+  assert.equal(arely.objectives.week.leads, 10);
+  assert.ok(Math.abs(arely.objectives.day.leads - 10 / 7) < 1e-9);
+  assert.ok(Math.abs((arely.conversions.leadPerfil ?? 0) - 2 / 29) < 1e-9);
+
+  // Equipo = todos los asesores (sin "Sin asignar"), objetivo × activos.
+  assert.equal(pmi.team.total.leads, 60);
+  assert.equal(pmi.team.total.cierres, 1);
+  assert.equal(pmi.team.objectives.month.leads, 80);
+  assert.equal(pmi.team.objectives.month.montoApartados, 6_000_000);
+
+  // Rankings por monto, con avance contra $3M.
+  assert.deepEqual(pmi.rankingApartados.map((r) => [r.name, r.count]), [["Arely", 1], ["Monica", 0]]);
+  assert.ok(Math.abs((pmi.rankingApartados[0].avance ?? 0) - 3_988_119.69 / 3_000_000) < 1e-9);
+  assert.equal(pmi.rankingCierres[0].name, "Monica");
+
+  // Un hito estimado en el mes se reporta.
+  assert.equal(pmi.estimatedCount, 1);
+
+  // Un mes vacío no explota.
+  const empty = buildPmiMonth({ contacts: [], opportunities: [], appointments: [], pautas: [] }, "2026-02");
+  assert.equal(empty.advisors.length, 0);
+  assert.equal(empty.activeAdvisors, 0);
+  assert.equal(empty.unassigned, null);
+  assert.equal(empty.team.objectives.month.leads, 0);
 }
 
 async function main() {
@@ -179,6 +247,8 @@ async function main() {
   console.log("✅ verify:pmi — etapas");
   engineMain();
   console.log("✅ verify:pmi — motor");
+  monthMain();
+  console.log("✅ verify:pmi — mes");
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

@@ -262,3 +262,133 @@ export function conversions(c: PmiCounts): PmiConversions {
     apartadoCierre: ratio(c.cierres, c.apartados),
   };
 }
+
+// ── Mes ─────────────────────────────────────────────────────────────────────
+
+export interface PmiSlice {
+  byWeek: PmiCounts[];
+  byDay: PmiCounts[];
+  total: PmiCounts;
+  objectives: { month: PmiObjectives; week: PmiObjectives; day: PmiObjectives };
+  conversions: PmiConversions;
+}
+
+export interface PmiAdvisor extends PmiSlice {
+  name: string;
+}
+
+export interface PmiRankingRow {
+  name: string;
+  monto: number;
+  count: number;
+  avance: number | null; // monto ÷ objetivo del mes
+}
+
+export interface PmiMonth {
+  month: string;
+  weeks: PmiWeek[];
+  days: string[];
+  team: PmiSlice;
+  advisors: PmiAdvisor[];
+  unassigned: PmiSlice | null;
+  activeAdvisors: number;
+  rankingApartados: PmiRankingRow[];
+  rankingCierres: PmiRankingRow[];
+  estimatedCount: number;
+}
+
+const MONTHS_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+export function monthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${MONTHS_ES[m - 1]} ${y}`;
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
+}
+
+export function currentMonth(now: Date = new Date()): string {
+  return localDay(now.toISOString()).slice(0, 7);
+}
+
+// El objetivo diario es semanal ÷ 7 = mensual ÷ 28 — así lo hace el Excel
+// (D8=C7/7), aunque el mes tenga 30 días o cinco semanas.
+function buildSlice(events: PmiEvent[], weeks: PmiWeek[], days: string[], objectiveFactor: number): PmiSlice {
+  const dayIndex = new Map(days.map((d, i) => [d, i]));
+  const weekOfDay = new Map<string, number>();
+  for (const w of weeks) for (const d of w.days) weekOfDay.set(d, w.index);
+
+  const byDay = days.map(() => emptyCounts());
+  const byWeek = weeks.map(() => emptyCounts());
+  for (const e of events) {
+    const di = dayIndex.get(e.day);
+    if (di === undefined) continue;
+    addEvent(byDay[di], e);
+    addEvent(byWeek[weekOfDay.get(e.day)!], e);
+  }
+  const total = sumCounts(byWeek);
+  const month = scaleObjectives(PMI_OBJECTIVES, objectiveFactor);
+  return {
+    byWeek,
+    byDay,
+    total,
+    objectives: { month, week: scaleObjectives(month, 1 / 4), day: scaleObjectives(month, 1 / 28) },
+    conversions: conversions(total),
+  };
+}
+
+function ranking(advisors: PmiAdvisor[], kind: "apartados" | "cierres"): PmiRankingRow[] {
+  const montoKey = kind === "apartados" ? "montoApartados" : "montoCierres";
+  return advisors
+    .map((a) => ({
+      name: a.name,
+      monto: a.total[montoKey],
+      count: a.total[kind],
+      avance: ratio(a.total[montoKey], PMI_OBJECTIVES[montoKey]),
+    }))
+    .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
+}
+
+export function buildPmiMonth(input: PmiInput, month: string): PmiMonth {
+  const days = monthDays(month);
+  const weeks = monthWeeks(month);
+  const events = collectEvents(input, days[0], days[days.length - 1]);
+
+  const byAdvisor = new Map<string, PmiEvent[]>();
+  for (const e of events) {
+    const list = byAdvisor.get(e.advisor) ?? [];
+    list.push(e);
+    byAdvisor.set(e.advisor, list);
+  }
+
+  const names = [...byAdvisor.keys()].filter((n) => n !== UNASSIGNED).sort((a, b) => a.localeCompare(b, "es"));
+  const advisors: PmiAdvisor[] = names.map((name) => ({
+    name,
+    ...buildSlice(byAdvisor.get(name)!, weeks, days, 1),
+  }));
+
+  const teamEvents = events.filter((e) => e.advisor !== UNASSIGNED);
+  const team = buildSlice(teamEvents, weeks, days, names.length);
+
+  const unassignedEvents = byAdvisor.get(UNASSIGNED) ?? [];
+  const unassigned = unassignedEvents.length > 0 ? buildSlice(unassignedEvents, weeks, days, 0) : null;
+
+  return {
+    month,
+    weeks,
+    days,
+    team,
+    advisors,
+    unassigned,
+    activeAdvisors: names.length,
+    rankingApartados: ranking(advisors, "apartados"),
+    rankingCierres: ranking(advisors, "cierres"),
+    estimatedCount: events.filter((e) => e.estimated).length,
+  };
+}
