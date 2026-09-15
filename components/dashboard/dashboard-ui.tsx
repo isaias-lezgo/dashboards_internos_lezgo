@@ -299,7 +299,7 @@ export function KpiCard({
 /** One tile of the marketing summary strip. Rendered as a `div` with button
  *  semantics rather than a real `<button>`: the Pautas tile nests its own
  *  "Sin contacto" button, and a button inside a button is invalid HTML. */
-function SummaryTile({
+export function SummaryTile({
   label,
   icon: Icon,
   tone = "default",
@@ -442,6 +442,33 @@ export function MarketingSummaryStrip({
           )}
         </div>
       </SummaryTile>
+    </div>
+  )
+}
+
+/** Control Top N de las gráficas y tablas con ranking. Vivía en Marketing;
+ *  se movió aquí cuando la sección de Meta lo necesitó. */
+export function TopNSlider({ value, max, onChange, disabled = false }: { value: number; max: number; onChange: (n: number) => void; disabled?: boolean }) {
+  const effectiveValue = Math.min(value, max)
+  const isAll = effectiveValue >= max
+  return (
+    <div
+      className={`flex items-center gap-1.5 ${disabled ? "opacity-40" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      title={disabled ? "El filtro del menú manda sobre el top N" : undefined}
+    >
+      <span className="text-[10px] font-medium text-muted-foreground tabular-nums w-12 text-right shrink-0">
+        {isAll ? "Todo" : `Top ${effectiveValue}`}
+      </span>
+      <input
+        type="range"
+        min={1}
+        max={max || 1}
+        value={effectiveValue}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-1 w-20 cursor-pointer accent-primary disabled:cursor-not-allowed"
+      />
     </div>
   )
 }

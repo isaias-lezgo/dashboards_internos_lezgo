@@ -445,6 +445,9 @@ export function DashboardApp() {
             locationName={locationName ?? undefined}
             periodLabel={periodLabel}
             filtersLabel={filtersLabel}
+            metaAds={data?.metaAds ?? null}
+            metaAdsStatus={data?.metaAdsStatus}
+            dateRange={dateRange}
           />
         )}
         {activeTab === "sales" && (

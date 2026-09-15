@@ -38,6 +38,9 @@ import { MultiSelectFilter, type MultiSelectOption } from "./multi-select-filter
 import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
+import { MetaInvestmentSection, useMetaInvestment } from "./meta-investment-section"
+import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
+import type { ResolvedDateRange } from "@/lib/date-range"
 import { OrigenDeLeadInfo } from "./origen-de-lead-criteria"
 import {
   BRAND_AMBER,
@@ -53,6 +56,7 @@ import {
   ChartEmpty,
   ChartHint,
   MarketingSummaryStrip,
+  TopNSlider,
   NonZeroTooltipContent,
   PlatformIcon,
 } from "./dashboard-ui"
@@ -138,6 +142,9 @@ interface MarketingDashboardProps {
   periodLabel?: string
   /** Resumen de los filtros de atributo activos, si los hay. */
   filtersLabel?: string
+  metaAds?: MetaAdsData | null
+  metaAdsStatus?: MetaAdsStatus
+  dateRange?: ResolvedDateRange | null
 }
 
 // Normalize any createdAt format → "YYYY-MM-DD" (UTC). Handles ISO strings,
@@ -582,32 +589,8 @@ function OriginGroupByToggle({ value, onChange }: { value: OriginGroupBy; onChan
 // `disabled` es lo que se enciende cuando el desplegable de claves tiene una
 // selección: ese menú manda, y un slider que sigue moviéndose sin efecto es peor
 // que uno apagado.
-function TopNSlider({ value, max, onChange, disabled = false }: { value: number; max: number; onChange: (n: number) => void; disabled?: boolean }) {
-  const effectiveValue = Math.min(value, max)
-  const isAll = effectiveValue >= max
-  return (
-    <div
-      className={`flex items-center gap-1.5 ${disabled ? "opacity-40" : ""}`}
-      onClick={(e) => e.stopPropagation()}
-      title={disabled ? "El filtro del menú manda sobre el top N" : undefined}
-    >
-      <span className="text-[10px] font-medium text-muted-foreground tabular-nums w-12 text-right shrink-0">
-        {isAll ? "Todo" : `Top ${effectiveValue}`}
-      </span>
-      <input
-        type="range"
-        min={1}
-        max={max || 1}
-        value={effectiveValue}
-        disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1 w-20 cursor-pointer accent-primary disabled:cursor-not-allowed"
-      />
-    </div>
-  )
-}
 
-export function MarketingDashboard({ opportunities, allOpportunities, contacts, allContacts, pautas, allPautas, pipelines = [], tasks = [], calls = [], appointments = [], allAppointments, locationId = "", locationName, periodLabel, filtersLabel }: MarketingDashboardProps) {
+export function MarketingDashboard({ opportunities, allOpportunities, contacts, allContacts, pautas, allPautas, pipelines = [], tasks = [], calls = [], appointments = [], allAppointments, locationId = "", locationName, periodLabel, filtersLabel, metaAds, metaAdsStatus, dateRange }: MarketingDashboardProps) {
   // Lookup table for drawer contact-resolution: the full set when provided,
   // falling back to the date-filtered `contacts` for backward compatibility.
   const lookupContacts = allContacts ?? contacts
@@ -621,6 +604,15 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   // the active date window — fall back to the filtered set when not provided.
   const rankingPautas = allPautas ?? pautas
   const [drill, setDrill] = useState<DrillState>(DRILL_CLOSED)
+
+  // Inversión en pauta (Meta): un solo cálculo compartido por la sección y el PDF.
+  const metaInv = useMetaInvestment({
+    metaAds,
+    opportunities,
+    pautas: rankingPautas,
+    dateRange,
+    attributeFiltersActive: filtersLabel !== undefined,
+  })
   const [hoveredAdType, setHoveredAdType] = useState<number | undefined>(undefined)
   const { groupBy: apptGroupBy, setGroupBy: setApptGroupBy, selected: apptKeys, setSelected: setApptKeys } = useGroupKeyFilter("campaign")
   const { groupBy: wonGroupBy, setGroupBy: setWonGroupBy, selected: wonKeys, setSelected: setWonKeys } = useGroupKeyFilter("campaign")
@@ -1467,6 +1459,8 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         onPautaOpportunitiesClick={openPautaOppsDrill}
         onPautasClick={openAllPautasDrill}
       />
+
+      {metaInv && <MetaInvestmentSection inv={metaInv} status={metaAdsStatus} onDrill={setDrill} />}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
      
