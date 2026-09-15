@@ -1,4 +1,4 @@
-// Crea las tablas del caché y de Meta. Idempotent — safe to run on every deploy or by hand.
+// Crea las tablas del caché, de Meta y de la bitácora del PMI. Idempotent — safe to run on every deploy or by hand.
 // Run: pnpm db:migrate
 //
 // No migration framework: one table does not justify one, and the repo has no
@@ -54,7 +54,22 @@ async function main() {
     )
   `;
 
-  for (const table of ["project_sync", "meta_connection", "meta_project_accounts"]) {
+  // La bitácora de hitos del PMI: la PRIMERA vez que cada oportunidad cruzó
+  // perfilado / apartado / cierre. NO es desechable: GHL no guarda cuándo una
+  // oportunidad entró a su etapa, así que borrar esta tabla pierde esas fechas
+  // para siempre. Solo ids y fechas — sin datos personales.
+  await sql`
+    CREATE TABLE IF NOT EXISTS opportunity_milestones (
+      project_id     text        NOT NULL,
+      opportunity_id text        NOT NULL,
+      milestone      text        NOT NULL,
+      reached_at     timestamptz NOT NULL,
+      estimated      boolean     NOT NULL DEFAULT false,
+      PRIMARY KEY (project_id, opportunity_id, milestone)
+    )
+  `;
+
+  for (const table of ["project_sync", "meta_connection", "meta_project_accounts", "opportunity_milestones"]) {
     const rows = await sql`
       SELECT column_name, data_type
         FROM information_schema.columns

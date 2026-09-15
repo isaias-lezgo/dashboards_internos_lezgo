@@ -10,6 +10,12 @@
 import assert from "node:assert/strict";
 import { reconcileMilestones, type MilestoneRow } from "../lib/pmi-ledger";
 import type { Opportunity } from "../lib/types";
+import { readMilestones, insertMilestones, deleteMilestonesForVerify } from "../lib/pmi-ledger-store";
+import type { ClientConfig } from "../lib/clients";
+
+// Ids que el roster no puede producir: ID_RE prohíbe guiones bajos.
+const A: ClientConfig = { id: "__verify_pmi_a", name: "A", locationId: "loc-a", ghlToken: "pit-a" };
+const B: ClientConfig = { id: "__verify_pmi_b", name: "B", locationId: "loc-b", ghlToken: "pit-b" };
 
 function opp(p: Partial<Opportunity>): Opportunity {
   return {
@@ -111,9 +117,44 @@ function pureMain() {
   }
 }
 
+async function dbMain() {
+  if (!process.env.DATABASE_URL) {
+    console.log("ℹ️  DATABASE_URL no está: se omite el roundtrip contra Postgres");
+    return;
+  }
+  await deleteMilestonesForVerify(A.id);
+  await deleteMilestonesForVerify(B.id);
+  try {
+    assert.deepEqual(await readMilestones(A), [], "proyecto sin filas");
+
+    const rows: MilestoneRow[] = [
+      { opportunityId: "o1", milestone: "perfilado", reachedAt: "2026-09-02T10:00:00.000Z", estimated: false },
+      { opportunityId: "o1", milestone: "apartado", reachedAt: "2026-09-05T10:00:00.000Z", estimated: true },
+    ];
+    await insertMilestones(A, rows);
+    await insertMilestones(B, [{ opportunityId: "o1", milestone: "cierre", reachedAt: "2026-09-09T10:00:00.000Z", estimated: false }]);
+
+    const a = (await readMilestones(A)).sort((x, y) => x.milestone.localeCompare(y.milestone));
+    assert.deepEqual(a, [rows[1], rows[0]], "roundtrip A, por proyecto");
+    assert.deepEqual((await readMilestones(B)).map((r) => r.milestone), ["cierre"], "B no ve las filas de A");
+
+    // Reinsertar la misma llave con otra fecha NO cambia nada: la primera vez manda.
+    await insertMilestones(A, [{ opportunityId: "o1", milestone: "perfilado", reachedAt: "2026-09-14T00:00:00.000Z", estimated: false }]);
+    const again = (await readMilestones(A)).find((r) => r.milestone === "perfilado");
+    assert.equal(again?.reachedAt, "2026-09-02T10:00:00.000Z", "ON CONFLICT DO NOTHING");
+
+    await insertMilestones(A, []); // vacío no falla
+  } finally {
+    await deleteMilestonesForVerify(A.id);
+    await deleteMilestonesForVerify(B.id);
+  }
+  console.log("✅ verify:pmi-ledger — roundtrip Postgres");
+}
+
 async function main() {
   pureMain();
   console.log("✅ verify:pmi-ledger — reconciliación pura");
+  await dbMain();
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
