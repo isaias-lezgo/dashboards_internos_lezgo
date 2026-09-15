@@ -57,6 +57,17 @@ export interface Contact {
   attributionMedium?: string
 }
 
+// Fechas ISO en que la oportunidad alcanzó cada hito del PMI (lib/pmi-stages.ts),
+// tomadas de la bitácora opportunity_milestones. `estimated` marca las que se
+// rellenaron con updatedAt la primera vez que un proyecto entró a la bitácora:
+// GHL no guarda cuándo una oportunidad entró a su etapa.
+export interface OpportunityMilestones {
+  perfilado?: string
+  apartado?: string
+  cierre?: string
+  estimated?: boolean
+}
+
 export interface Opportunity {
   // Always present
   id: string
@@ -111,6 +122,7 @@ export interface Opportunity {
   attributionUrl?: string
   attributionMedium?: string  // computed: GHL-internal medium (whatsapp, instagram, calendar, manual, …) or utmSessionSource fallback
   originPlatform?: string     // computed: linked contact's "Origen de Lead" custom field (Instagram/Facebook/TikTok/…); fallback signal for platformLabel
+  milestones?: OpportunityMilestones // computed (lib/pmi-ledger.ts): ausente en payloads anteriores a la bitácora
 }
 
 export interface Call {
