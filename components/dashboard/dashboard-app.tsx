@@ -19,6 +19,8 @@ import {
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { SalesDashboard } from "@/components/dashboard/sales-dashboard"
+import { PmiDashboard } from "@/components/dashboard/pmi-dashboard"
+import { projectHasMilestoneStages } from "@/lib/pmi-stages"
 import { ConversationsChat } from "@/components/dashboard/conversations-chat"
 import { MetaConnectionPill } from "@/components/dashboard/meta-connection"
 import { useDashboardData } from "@/hooks/use-dashboard-data"
@@ -37,7 +39,6 @@ import {
   Sparkles,
   LayoutGrid,
   Award,
-  Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -58,7 +59,7 @@ const LoadingScreen = dynamic(
   { ssr: false },
 )
 
-type DashboardTab = "marketing" | "sales" | "conversations"
+type DashboardTab = "marketing" | "sales" | "conversations" | "pmi"
 
 // Browser-tab title per view. The app is a single route, so the title is set
 // imperatively — `metadata` in layout.tsx can only give one static fallback.
@@ -66,6 +67,7 @@ const TAB_TITLES: Record<DashboardTab, string> = {
   marketing: "Marketing - Lezgo Suite CRM",
   sales: "Ventas - Lezgo Suite CRM",
   conversations: "Asistente IA - Lezgo Suite CRM",
+  pmi: "Desempeño - Lezgo Suite CRM",
 }
 
 // With a cache, the age of the data matters more than the clock time it was taken:
@@ -93,6 +95,14 @@ export function DashboardApp() {
   useEffect(() => { document.title = TAB_TITLES[activeTab] }, [activeTab])
 
   const { data, isLoading, isError, progress, locationName, steps, refresh } = useDashboardData({})
+
+  // La pestaña Desempeño solo existe donde hay una etapa de apartado que medir
+  // (detección por presencia, como los segmentos Plaza/Agencia). Si el proyecto
+  // cambia bajo los pies y deja de tenerla, se vuelve a Marketing.
+  const hasPmi = projectHasMilestoneStages(data?.pipelines ?? [])
+  useEffect(() => {
+    if (activeTab === "pmi" && !hasPmi) setActiveTab("marketing")
+  }, [activeTab, hasPmi])
 
   // The "Actualizado hace X" label is relative, so it has to re-render on its own;
   // without this it would still read "hace un momento" an hour later.
@@ -369,29 +379,10 @@ export function DashboardApp() {
             [
               { id: "marketing" as const, label: "Marketing", icon: TrendingUp, locked: false },
               { id: "sales" as const, label: "Ventas", icon: BarChart3, locked: false },
-              { id: "conversations" as const, label: "Asistente IA", icon: Sparkles, locked: false },
-              { id: "advisors" as const, label: "Asesores", icon: Award, locked: true },
-            ] as const
-          ).map(({ id, label, icon: Icon, locked }) => {
-            if (locked) {
-              return (
-                <TooltipProvider key={id} delayDuration={100}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span
-                        aria-disabled
-                        className="relative flex cursor-not-allowed items-center gap-2 py-3 text-sm font-medium text-muted-foreground/50"
-                      >
-                        <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                        {label}
-                        <Lock className="h-3 w-3 shrink-0" aria-hidden />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Próximamente</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )
-            }
+              { id: "conversations" as const, label: "Asistente IA", icon: Sparkles },
+              ...(hasPmi ? [{ id: "pmi" as const, label: "Desempeño", icon: Award }] : []),
+            ]
+          ).map(({ id, label, icon: Icon }) => {
             const active = activeTab === id
             return (
               <button
@@ -414,7 +405,7 @@ export function DashboardApp() {
         </div>
       </nav>
 
-      {activeTab !== "conversations" && (
+      {activeTab !== "conversations" && activeTab !== "pmi" && (
         <FilterBar
           dateFilter={dateFilter}
           onDateChange={setDateFilter}
@@ -469,6 +460,19 @@ export function DashboardApp() {
             locationName={locationName ?? undefined}
             periodLabel={periodLabel}
             filtersLabel={filtersLabel}
+          />
+        )}
+        {activeTab === "pmi" && (
+          <PmiDashboard
+            contacts={data?.contacts ?? []}
+            opportunities={data?.opportunities ?? []}
+            appointments={data?.appointments ?? []}
+            pautas={data?.pautas ?? []}
+            tasks={data?.tasks ?? []}
+            calls={data?.calls ?? []}
+            messages={messages}
+            locationId={data?.locationId ?? ""}
+            locationName={locationName ?? undefined}
           />
         )}
         {/* Kept permanently mounted (hidden when inactive) so the AI chat
