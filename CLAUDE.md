@@ -14,7 +14,8 @@ pnpm lint       # Run ESLint
 # Multi-client
 pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, validates, prints the blob)
                 #   Non-interactive: pnpm add-client --name "X" --location <id> --token pit-…
-pnpm db:migrate # Crea/verifica project_sync, meta_connection y meta_project_accounts en Neon. Idempotente.
+pnpm db:migrate # Crea/verifica project_sync, meta_connection, meta_project_accounts y opportunity_milestones
+                #   en Neon. Idempotente.
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing
@@ -37,6 +38,10 @@ pnpm verify:meta-connection-store # lib/meta-connection-store.ts — fila única
                          #   usa la base si hay DATABASE_URL, con producto sintético (no toca 'ads')
 pnpm verify:meta         # lib/meta-normalize.ts — actions, chunks por mes, ventana de historia
 pnpm verify:meta-attribution # lib/meta-attribution.ts — llave por ad id, cohorte por día local, costo por campaña
+pnpm verify:pmi          # lib/pmi-stages.ts + lib/pmi.ts — hitos por NOMBRE de etapa, semanas del mes,
+                         #   semáforo, conversiones nulas, mes y año
+pnpm verify:pmi-ledger   # lib/pmi-ledger.ts — la bitácora nunca retira un hito; primera vez = estimado;
+                         #   roundtrip Postgres con ids sintéticos si hay DATABASE_URL
 npx tsc --noEmit         # REQUIRED: next build ignores TS errors, so a green build proves nothing
 ```
 
@@ -117,6 +122,10 @@ This is a single-page Next.js 16 (App Router) dashboard that surfaces GoHighLeve
 - `components/dashboard/marketing-dashboard.tsx` and `components/dashboard/sales-dashboard.tsx` — **fully built**: each receives already-filtered data as props and renders its own set of charts, KPI cards, and drill-down drawers.
 - The third tab (`DashboardTab` id `"conversations"`, labelled **"Asistente IA"**) renders `conversations-chat.tsx`. It is **permanently mounted and merely hidden** when inactive, so the chat history survives tab switches — do not make it conditional. It always sees the full, unfiltered dataset.
 - Both dashboards can **export a branded PDF report** of their own charts (see "PDF report export").
+- The fourth tab (`"pmi"`, labelled **"Desempeño"**) renders `pmi-dashboard.tsx`: the consultancy's
+  PMI computed from the CRM. It exists **only in projects with an "Apartado" stage**
+  (`projectHasMilestoneStages`), ignores the global filter bar, and works off the full dataset.
+  See "PMI (pestaña Desempeño)".
 
 ### Data flow
 
@@ -351,7 +360,7 @@ context.
 browser already holds), so they need no client context — only the middleware gate.
 
 Verification scripts (no test framework in this repo): `pnpm verify:clients`,
-`verify:scopes`, `verify:auth`, `verify:limiter`.
+`verify:scopes`, `verify:auth`, `verify:limiter`, `verify:pmi`, `verify:pmi-ledger`.
 
 ### Loading & progress
 
@@ -543,6 +552,51 @@ PDF, y el asistente — implementadas.
   es otro proyecto (`dashboards-ghl`). `META_PUBLIC_ORIGIN` apuntando al host equivocado
   hace que Facebook regrese a un host sin la cookie de sesión y el middleware responda
   401 — y esa denegación **no aparece en los runtime logs de Vercel**.
+
+### PMI (pestaña Desempeño)
+
+Spec: `docs/superpowers/specs/2026-09-15-pmi-desempeno-design.md`. El PMI es el Excel con el
+que la consultoría (c+escaling) evalúa a los asesores — leads, perfilamientos, citas
+efectivas, apartados, cierres y montos, por semana del mes contra objetivos, con semáforo,
+conversiones, ranking y una hoja anual. Antes se capturaba a mano; ahora lo calcula el
+panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
+
+- **Hitos por NOMBRE de etapa, nunca por número** (`lib/pmi-stages.ts`). Los cinco
+  proyectos inmobiliarios comparten `02. Cliente Calificado` / `06. Apartado` /
+  `08. Proceso de Escritura`, pero **`10.` es Negocio Ganado en Yconia e Inversión Futura
+  en los otros cuatro**: una regla por número contaría inversiones futuras como cierres.
+  `perfilado` = calificado · cita · visita · inversión futura · cotización · apartado ·
+  mensualidades · escritura · ganado · entregado; `apartado` = apartado en adelante;
+  `cierre` = escritura · ganado · entregado. Una perdida cuenta por su campo "Última Etapa
+  en el Pipeline". `projectHasMilestoneStages` exige una etapa de **apartado**, no
+  cualquier hito: "Primera Cita" (Lezgo Suite, pipeline de servicios) cae en "cita".
+- **`opportunity_milestones` NO es desechable.** GHL no guarda cuándo una oportunidad
+  entró a su etapa y `closedAt` viene vacío, así que `syncProject` anota la PRIMERA vez
+  que cada oportunidad cruza cada hito (`lib/pmi-ledger.ts` puro, `pmi-ledger-store.ts`
+  SQL). Es la única tabla del panel con historia irrecuperable desde GHL: insert-only,
+  `ON CONFLICT DO NOTHING`, la app nunca la actualiza ni borra, y un hito **no se retira**
+  aunque la oportunidad retroceda — un apartado que se cae sigue siendo apartado de su
+  mes, que es como lo cuenta el PMI. **La primera vez** que un proyecto entra a la
+  bitácora no hay historia: se fecha con `updatedAt` y se marca `estimated`; la UI y el
+  PDF lo dicen. Octubre 2026 es el primer mes con fechas exactas. La base no es una
+  dependencia: si falla, las oportunidades salen con hitos estimados y el sync sigue.
+- **`status: won` se pone al APARTAR en Yconia**: las 61 oportunidades en `06`–`10`
+  tienen `status: won`. `isWonOpp()` cuenta por tanto apartados como ganadas en el KPI
+  "Ganadas" de Ventas y en el CPA de Meta. El PMI va por etapa y no lo usa. **Deuda
+  conocida, no corregida aquí.**
+- **Semanas** lunes–domingo recortadas al mes; un pedazo de menos de 4 días se pega a la
+  vecina (reproduce `1 - 6 · 7 - 13 · 14 - 20 · 21 - 30` de septiembre y `1 - 9` de agosto).
+  Objetivos fijos en `PMI_OBJECTIVES` (por asesor y mes; semanal ÷ 4, diario ÷ 7; equipo
+  × asesores con actividad). Semáforo 180 / 100 / 75 % del Excel. Conversiones `null`
+  sin denominador, nunca 0 %.
+- **Lead** = todo contacto nuevo (con desglose de pauta); **cita efectiva** = cita
+  `showed` por su fecha; **apartado** es un EVENTO, no un estado. Todo por día local.
+- **El mes/año en curso se declara**: semanas, días y meses que no han ocurrido van en
+  `—` y el `periodLabel` del PDF dice "al día N". Sin eso el análisis de Haiku leía las
+  semanas futuras como una "caída abrupta".
+- Un solo motor (`lib/pmi.ts`, puro, navegador) alimenta pestaña y PDF
+  (`lib/pmi-report.ts`, `reportType: "pmi"`). Fuera de alcance: cambaceo, accountability,
+  objetivos editables, asistente.
 
 ### PDF report export
 

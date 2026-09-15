@@ -1,7 +1,7 @@
 # PMI — pestaña "Desempeño": el reporte de la consultoría calculado desde el CRM
 
 Fecha: 2026-09-15
-Estado: diseño aprobado para implementar
+Estado: implementado 2026-09-15 (rama `feat/pmi-desempeno`)
 
 ## El problema
 
@@ -313,3 +313,31 @@ mes con fechas exactas**.
 Cambaceo, Accountability, objetivos editables, integración con el asistente (ve
 `opp.milestones` en los datos, pero sin herramienta ni regla nueva), corregir
 `isWonOpp()` para Yconia.
+
+## Cuadre 2026-09-15 — Yconia, septiembre 2026 (panel vs PMI de la consultoría)
+
+| Asesor | Leads | Perfilamientos | Citas efectivas | Apartados | $ Apartados |
+|---|---|---|---|---|---|
+| Arely | **32** / 29 | **16** / 8 | **5** / 5 | **1** / 1 | **$3,988,120** / $3,988,119.69 |
+| Eder | **41** / 32 | **16** / 10 | **1** / 3 | **1** / 0 | **$2,858,295** / $0 |
+| Mónica | **37** / 31 | **11** / 11 | **3** / 4 | **1** / 0 | **$3,621,075** / $0 |
+
+(panel en negritas / PMI capturado a mano). Lo que cuadra y lo que no, y por qué:
+
+- **Apartado de Arely**: exacto en conteo y monto — la fila de referencia.
+- **Leads**: el panel va arriba en los tres porque cuenta *todo* contacto nuevo (decisión
+  8); la consultoría captura "leads publicidad". El desglose "de pauta" queda a la vista
+  para comparar.
+- **Perfilamientos y apartados de Eder y Mónica**: septiembre es el **mes estimado**
+  (decisión 7): sus hitos anteriores a la bitácora llevan `updatedAt`, y el apartado de
+  Eder de julio ($2,858,295, hoy en `07. Pago de Mensualidades`, editado el 10 de
+  septiembre) cae aquí. El aviso en pantalla lo declara (47 hitos estimados en el mes).
+  Octubre será el primer mes limpio; no se ajusta el motor para cuadrar con una captura
+  manual.
+- **Citas efectivas**: Arely exacta; Eder 1 vs 3 y Mónica 3 vs 4 — citas que se hicieron
+  sin agendarse en el calendario o sin marcar `showed`. Es un hábito de captura, no una
+  regla del panel.
+- **Asesores activos**: Evelyn Alonzo tiene 1 lead en septiembre y eso la vuelve "activa",
+  con lo que el objetivo del equipo sube de 3 a 4 asesores (leads 160 en vez de 120).
+  Refinamiento posible: un umbral de actividad, o excluir asesores sin oportunidad en el
+  mes. Pendiente de decidir con la consultoría.
