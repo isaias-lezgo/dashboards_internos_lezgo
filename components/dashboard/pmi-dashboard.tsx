@@ -18,6 +18,7 @@ import {
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
 import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
 import { PmiWeekTable } from "./pmi-week-table"
+import { PmiAdvisorSheet } from "./pmi-advisor-sheet"
 
 interface PmiDashboardProps {
   contacts: Contact[]
@@ -220,6 +221,11 @@ export function PmiDashboard(props: PmiDashboardProps) {
             hint={<ScopePill label="Metas" tooltip="Metas de conversión del PMI: 40 % / 60 % / 75 % / 100 %. Sin denominador la conversión se muestra como —, no como 0 %." />}>
             <ConversionStrip conversions={slice.conversions} />
           </PmiSection>
+          {selected && (
+            <PmiAdvisorSheet slice={selected} weeks={pmi.weeks} days={pmi.days}
+              onCell={(kind, ids, dayLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${selected.name}`, dayLabel)} />
+          )}
+
           <PmiWeekTable
             slice={slice}
             weeks={pmi.weeks}
@@ -290,7 +296,6 @@ export function PmiDashboard(props: PmiDashboardProps) {
             <WeekTrend title="Citas efectivas por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.citas)}
               onPoint={(i) => { const ids = slice.byWeek[i].ids.citas; if (ids.length) openDrill("citas", ids, `Citas efectivas · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
           </div>
-          {/* Task 11 */}
         </>
       )}
 
