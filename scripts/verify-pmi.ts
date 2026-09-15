@@ -11,7 +11,7 @@ import {
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
   monthWeeks, monthDays, semaphore, conversions, collectEvents, emptyCounts, addEvent, sumCounts,
-  PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth,
+  PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth, buildPmiYear,
 } from "../lib/pmi";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -242,6 +242,56 @@ function monthMain() {
   assert.equal(empty.team.objectives.month.leads, 0);
 }
 
+function yearMain() {
+  const input = {
+    contacts: [
+      contact({ id: "a1", assignedTo: "Arely", createdAt: "2026-03-05T15:00:00.000Z" }),
+      contact({ id: "a2", assignedTo: "Arely", createdAt: "2026-09-05T15:00:00.000Z" }),
+      contact({ id: "m1", assignedTo: "Monica", createdAt: "2026-01-05T15:00:00.000Z" }),
+    ],
+    opportunities: [
+      opp({ id: "o1", assignedTo: "Arely", value: 5_967_052.46, stage: "08. Proceso de Escritura",
+        milestones: { perfilado: "2026-05-01T15:00:00.000Z", apartado: "2026-05-10T15:00:00.000Z", cierre: "2026-07-10T15:00:00.000Z" } }),
+      opp({ id: "o2", assignedTo: "Arely", value: 6_497_283.09, stage: "06. Apartado",
+        milestones: { perfilado: "2026-06-01T15:00:00.000Z", apartado: "2026-06-10T15:00:00.000Z" } }),
+      opp({ id: "o3", assignedTo: "Monica", value: 3_145_022.6, stage: "10. Negocio Ganado",
+        milestones: { perfilado: "2025-12-01T15:00:00.000Z", apartado: "2025-12-10T15:00:00.000Z", cierre: "2026-01-20T15:00:00.000Z" } }),
+    ],
+    appointments: [],
+    pautas: [],
+  };
+  const y = buildPmiYear(input, 2026);
+  const arely = y.advisors.find((a) => a.name === "Arely")!;
+  assert.equal(arely.byMonth.length, 12);
+  assert.equal(arely.byMonth[4].apartados, 1, "mayo");
+  assert.equal(arely.byMonth[5].apartados, 1, "junio");
+  assert.equal(arely.byQuarter[1].apartados, 2, "2do trimestre");
+  assert.equal(arely.byQuarter[2].cierres, 1, "3er trimestre");
+  assert.equal(arely.total.montoApartados, 5_967_052.46 + 6_497_283.09);
+  assert.equal(arely.mesesActivo, 5, "mar, may, jun, jul, sep");
+  assert.ok(Math.abs((arely.promedio?.montoApartados ?? 0) - (5_967_052.46 + 6_497_283.09) / 5) < 1e-6);
+  assert.equal(arely.ticketPromedio, 5_967_052.46);
+
+  const monica = y.advisors.find((a) => a.name === "Monica")!;
+  assert.equal(monica.total.apartados, 0, "el apartado fue en diciembre 2025: fuera del año");
+  assert.equal(monica.total.cierres, 1);
+  assert.equal(monica.mesesActivo, 1);
+
+  assert.equal(y.team.byMonth[0].leads, 1);
+  assert.deepEqual(y.team.activeByMonth.slice(0, 3), [1, 0, 1]);
+  assert.equal(y.team.pctMeta[1], null, "febrero sin asesores activos: sin % de meta");
+  assert.ok(Math.abs((y.team.pctMeta[0]?.leads ?? 0) - 1 / 40) < 1e-9);
+  assert.equal(y.team.byQuarter[2].cierres, 1);
+
+  const r = y.rankingApartados[0];
+  assert.equal(r.name, "Arely");
+  assert.ok(Math.abs((r.avance ?? 0) - r.monto / (3_000_000 * 5)) < 1e-9, "meta = $3M × meses activo");
+  assert.equal(r.paraLlegar, Math.max(0, 3_000_000 * 5 - r.monto));
+  assert.equal(y.rankingCierres[0].name, "Arely");
+  assert.equal(y.rankingCierres[1].name, "Monica");
+  assert.equal(y.estimatedCount, 0);
+}
+
 async function main() {
   stagesMain();
   console.log("✅ verify:pmi — etapas");
@@ -249,6 +299,8 @@ async function main() {
   console.log("✅ verify:pmi — motor");
   monthMain();
   console.log("✅ verify:pmi — mes");
+  yearMain();
+  console.log("✅ verify:pmi — año");
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

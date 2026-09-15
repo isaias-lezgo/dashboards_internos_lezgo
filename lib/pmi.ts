@@ -392,3 +392,134 @@ export function buildPmiMonth(input: PmiInput, month: string): PmiMonth {
     estimatedCount: events.filter((e) => e.estimated).length,
   };
 }
+
+// ── Año (la hoja DASH) ──────────────────────────────────────────────────────
+
+export interface PmiYearAdvisor {
+  name: string;
+  byMonth: PmiCounts[]; // 12
+  byQuarter: PmiCounts[]; // 4
+  total: PmiCounts;
+  mesesActivo: number; // meses con algún registro
+  promedio: PmiCounts | null; // total ÷ mesesActivo (ids vacíos)
+  ticketPromedio: number | null; // montoCierres ÷ cierres
+}
+
+export interface PmiYearRankingRow {
+  name: string;
+  monto: number;
+  count: number;
+  mesesActivo: number;
+  avance: number | null; // monto ÷ (objetivo mensual × mesesActivo)
+  paraLlegar: number;
+  promedio: number | null; // monto ÷ mesesActivo
+}
+
+export interface PmiYear {
+  year: number;
+  advisors: PmiYearAdvisor[];
+  team: {
+    byMonth: PmiCounts[];
+    byQuarter: PmiCounts[];
+    total: PmiCounts;
+    activeByMonth: number[]; // asesores con actividad, por mes
+    pctMeta: (PmiObjectives | null)[]; // avance por mes; null sin asesores activos
+  };
+  rankingApartados: PmiYearRankingRow[];
+  rankingCierres: PmiYearRankingRow[];
+  estimatedCount: number;
+}
+
+function divideCounts(c: PmiCounts, n: number): PmiCounts | null {
+  if (!(n > 0)) return null;
+  const out = emptyCounts();
+  out.leads = c.leads / n; out.leadsPauta = c.leadsPauta / n; out.perfilamientos = c.perfilamientos / n;
+  out.citas = c.citas / n; out.apartados = c.apartados / n; out.montoApartados = c.montoApartados / n;
+  out.cierres = c.cierres / n; out.montoCierres = c.montoCierres / n;
+  return out;
+}
+
+function hasActivity(c: PmiCounts): boolean {
+  return c.leads + c.perfilamientos + c.citas + c.apartados + c.cierres > 0;
+}
+
+function quarters(byMonth: PmiCounts[]): PmiCounts[] {
+  return [0, 1, 2, 3].map((q) => sumCounts(byMonth.slice(q * 3, q * 3 + 3)));
+}
+
+function yearRanking(advisors: PmiYearAdvisor[], kind: "apartados" | "cierres"): PmiYearRankingRow[] {
+  const montoKey = kind === "apartados" ? "montoApartados" : "montoCierres";
+  return advisors
+    .map((a) => {
+      const meta = PMI_OBJECTIVES[montoKey] * a.mesesActivo;
+      const monto = a.total[montoKey];
+      return {
+        name: a.name,
+        monto,
+        count: a.total[kind],
+        mesesActivo: a.mesesActivo,
+        avance: ratio(monto, meta),
+        paraLlegar: Math.max(0, meta - monto),
+        promedio: ratio(monto, a.mesesActivo),
+      };
+    })
+    .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
+}
+
+export function buildPmiYear(input: PmiInput, year: number): PmiYear {
+  const events = collectEvents(input, `${year}-01-01`, `${year}-12-31`);
+  const monthOf = (day: string) => Number(day.slice(5, 7)) - 1;
+
+  const byAdvisor = new Map<string, PmiCounts[]>();
+  for (const e of events) {
+    if (e.advisor === UNASSIGNED) continue;
+    let months = byAdvisor.get(e.advisor);
+    if (!months) {
+      months = Array.from({ length: 12 }, () => emptyCounts());
+      byAdvisor.set(e.advisor, months);
+    }
+    addEvent(months[monthOf(e.day)], e);
+  }
+
+  const advisors: PmiYearAdvisor[] = [...byAdvisor.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], "es"))
+    .map(([name, byMonth]) => {
+      const total = sumCounts(byMonth);
+      const mesesActivo = byMonth.filter(hasActivity).length;
+      return {
+        name,
+        byMonth,
+        byQuarter: quarters(byMonth),
+        total,
+        mesesActivo,
+        promedio: divideCounts(total, mesesActivo),
+        ticketPromedio: ratio(total.montoCierres, total.cierres),
+      };
+    });
+
+  const teamByMonth = Array.from({ length: 12 }, (_, i) => sumCounts(advisors.map((a) => a.byMonth[i])));
+  const activeByMonth = Array.from({ length: 12 }, (_, i) => advisors.filter((a) => hasActivity(a.byMonth[i])).length);
+  const pctMeta = teamByMonth.map((c, i) => {
+    const n = activeByMonth[i];
+    if (n === 0) return null;
+    const o = scaleObjectives(PMI_OBJECTIVES, n);
+    return {
+      leads: c.leads / o.leads,
+      perfilamientos: c.perfilamientos / o.perfilamientos,
+      citas: c.citas / o.citas,
+      apartados: c.apartados / o.apartados,
+      montoApartados: c.montoApartados / o.montoApartados,
+      cierres: c.cierres / o.cierres,
+      montoCierres: c.montoCierres / o.montoCierres,
+    };
+  });
+
+  return {
+    year,
+    advisors,
+    team: { byMonth: teamByMonth, byQuarter: quarters(teamByMonth), total: sumCounts(teamByMonth), activeByMonth, pctMeta },
+    rankingApartados: yearRanking(advisors, "apartados"),
+    rankingCierres: yearRanking(advisors, "cierres"),
+    estimatedCount: events.filter((e) => e.estimated && e.advisor !== UNASSIGNED).length,
+  };
+}
