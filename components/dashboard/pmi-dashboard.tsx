@@ -19,6 +19,7 @@ import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-d
 import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
 import { PmiWeekTable } from "./pmi-week-table"
 import { PmiAdvisorSheet } from "./pmi-advisor-sheet"
+import { PmiYearView } from "./pmi-year-table"
 
 interface PmiDashboardProps {
   contacts: Contact[]
@@ -302,7 +303,7 @@ export function PmiDashboard(props: PmiDashboardProps) {
       {view === "year" && pmiYear && (
         <>
           <EstimatedNote count={pmiYear.estimatedCount} />
-          {/* Task 12 agrega aquí la vista anual */}
+          <PmiYearView year={pmiYear} onCell={(kind, ids, label) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${label}`)} />
         </>
       )}
 
