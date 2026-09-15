@@ -473,12 +473,24 @@ PDF, y el asistente — implementadas.
   agencia NO funcionaría hoy. El *Marketing API Access Tier* empieza en Limited (rate
   limit agresivo por cuenta) y sube a Full solo tras 500 llamadas exitosas en 15 días:
   throttling la primera semana es esperado, se ve como paso `meta` lento o `partial`.
+- **El lead es el CONTACTO y su anuncio sale de una cadena** (`contactAdId` en
+  `lib/meta-attribution.ts`): oportunidad del contacto → objeto Pauta del contacto
+  (`nombrePauta` termina en el ad id: `<titular> - <liga> - <adId>`, `pautaAdId`) →
+  primera atribución (`attributions[isFirst]` / `attributionSource`) → última
+  (`attributions[última]` / `lastAttributionSource`). Cada eslabón cuenta solo si su
+  id está en Meta. Nació de "248 leads contra 2,354 de Meta" en Lezgo Suite: la
+  cohorte era de oportunidades y aquí el 93 % de los leads nunca llega a oportunidad.
+  Medido 2026-09-14: 246 + 1,021 + 408 + 2 = 1,677 contactos (71 % de Meta, 75-85 %
+  mensual desde que existe el objeto Pauta). `resolveOppAdId` da a una oportunidad
+  sin id el de su contacto. **CPL = gasto ÷ contactos; CPA = gasto ÷ ganadas.**
+  `buildAttributionContext` recibe el HISTORIAL COMPLETO (la cadena mira opps y
+  pautas de siempre), y se construye una vez por payload.
 - **La llave es el ad id.** `opp.adId` (utmAdId) cubre 38-63 % de las oportunidades
   según el proyecto; `campaignName` cubre menos en los seis, y el objeto Pauta de aquí
   no trae nombre de anuncio, así que **no hay cruce por nombre**. `oppAdId()` en
   `lib/meta-attribution.ts` es la única función que lo lee (nativo manda; custom field
-  `ID Pauta`/`ID de Pauta` es fallback). `classifyLead` → `exact | unknownAd | noAdId |
-  notPauta`; `csv_import` es `notPauta` incluso con ad id. Solo `exact` entra al costo.
+  `ID Pauta`/`ID de Pauta` es fallback). `classifyContact` / `classifyLead` → `exact | unknownAd |
+  noAdId | notPauta`; `csv_import` es `notPauta` incluso con ad id. Solo `exact` entra al costo.
 - **`metaAds` es un dataset más del sync** (`lib/sync.ts`, paso `meta`, DESPUÉS del
   transform de `opportunities` porque la ventana sale de la opp más antigua con ad id).
   **Sin conexión o sin cuentas asignadas al proyecto el paso no se emite**, `metaAds`

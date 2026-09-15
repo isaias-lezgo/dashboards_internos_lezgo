@@ -608,8 +608,11 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   // Inversión en pauta (Meta): un solo cálculo compartido por la sección y el PDF.
   const metaInv = useMetaInvestment({
     metaAds,
+    contacts,
     opportunities,
-    pautas: rankingPautas,
+    allContacts: allContacts ?? contacts,
+    allOpportunities: allOpportunities ?? opportunities,
+    allPautas: rankingPautas,
     dateRange,
     attributeFiltersActive: filtersLabel !== undefined,
   })

@@ -12,7 +12,7 @@ import type {
 } from "@/lib/types";
 import type { ChatDataset } from "@/lib/ai-tools";
 import { buildPautaNameByContact } from "@/lib/pauta";
-import { buildMetaIndex, type MetaIndex } from "@/lib/meta-attribution";
+import { buildAttributionContext, buildMetaIndex, type AttributionContext } from "@/lib/meta-attribution";
 
 export interface ChatIndex {
   contactById: Map<string, Contact>;
@@ -24,8 +24,8 @@ export interface ChatIndex {
   // shared resolveCampaignName (see lib/pauta). pautasByContact.has() gives the
   // "es de pauta" trace directly, so no separate id set is needed.
   pautaNameByContact: Map<string, string>;
-  /** Índice de Meta Ads (adId → jerarquía); null sin conexión. */
-  metaIndex: MetaIndex | null;
+  /** Contexto de atribución de Meta Ads (índice + cadena por contacto); null sin conexión. */
+  metaCtx: AttributionContext | null;
 }
 
 function pushTo<T>(map: Map<string, T[]>, key: string | undefined, val: T): void {
@@ -53,8 +53,10 @@ export function buildChatIndex(data: ChatDataset): ChatIndex {
 
   const pautaNameByContact = buildPautaNameByContact(data.pautas);
 
-  const metaIndex = data.metaAds ? buildMetaIndex(data.metaAds) : null;
-  return { contactById, oppsByContact, pautasByContact, apptsByContact, tasksByContact, pautaNameByContact, metaIndex };
+  const metaCtx = data.metaAds
+    ? buildAttributionContext({ index: buildMetaIndex(data.metaAds), contacts: data.contacts, opportunities: data.opportunities, pautas: data.pautas })
+    : null;
+  return { contactById, oppsByContact, pautasByContact, apptsByContact, tasksByContact, pautaNameByContact, metaCtx };
 }
 
 // Cache keyed on the contacts array reference (stable within a single agent run),

@@ -2,16 +2,22 @@
 //
 // Un error aquí es un número equivocado en pantalla: un CPL calculado sobre
 // leads que no eran de ese anuncio, o un gasto que se cuenta dos veces. Por eso
-// las aserciones fijan la llave (ad id), la cohorte por día LOCAL y las
-// divisiones sin denominador.
+// las aserciones fijan la llave (ad id), la cadena de fallbacks (oportunidad →
+// Pauta → primera atribución → última), la cohorte de CONTACTOS por día LOCAL y
+// las divisiones sin denominador.
 //
 // Envuelto en main() en vez de usar await de nivel superior: este paquete es CJS.
 import assert from "node:assert/strict";
-import type { MetaAdsData, Opportunity } from "../lib/types";
+import type { Contact, MetaAdsData, Opportunity, Pauta } from "../lib/types";
 import {
   oppAdId,
+  pautaAdId,
+  contactAdId,
+  resolveOppAdId,
   buildMetaIndex,
+  buildAttributionContext,
   classifyLead,
+  classifyContact,
   localDay,
   buildCostSummary,
   buildCampaignPerformance,
@@ -32,6 +38,22 @@ function opp(over: Partial<Opportunity> & { id: string }): Opportunity {
     pipelineName: "Ventas",
     ...over,
   } as Opportunity;
+}
+
+function contact(over: Partial<Contact> & { id: string }): Contact {
+  return {
+    name: over.id,
+    email: "",
+    phone: "",
+    tags: [],
+    dateAdded: "2026-08-10T15:00:00.000Z",
+    createdAt: "2026-08-10T15:00:00.000Z",
+    ...over,
+  } as Contact;
+}
+
+function pauta(over: Partial<Pauta> & { id: string }): Pauta {
+  return { tipo: "Mensaje WhatsApp", nombrePauta: "", createdAt: "2026-08-10T15:00:00.000Z", ...over } as Pauta;
 }
 
 const meta: MetaAdsData = {
@@ -77,6 +99,12 @@ async function main() {
   assert.equal(oppAdId(opp({ id: "7", adId: "" })), null);
   assert.equal(oppAdId(opp({ id: "8", adId: "abc" })), null, "sin dígitos no hay id");
 
+  // --- pautaAdId: el ad id vive al final del nombre "<titular> - <liga> - <adId>"
+  assert.equal(pautaAdId(pauta({ id: "p1", nombrePauta: "TU INMOBILIARIA, MÁS EFICIENTE - https://fb.me/5iHqPQHIH - 120247929084880611" })), "120247929084880611");
+  assert.equal(pautaAdId(pauta({ id: "p2", nombrePauta: "TU INMOBILIARIA - https://fb.me/x - 120247929084880611 " })), "120247929084880611", "tolera espacio final");
+  assert.equal(pautaAdId(pauta({ id: "p3", nombrePauta: "Formulario Balvanera 210726" })), null, "un número corto no es ad id");
+  assert.equal(pautaAdId(pauta({ id: "p4" })), null);
+
   // --- índice
   const index = buildMetaIndex(meta);
   assert.equal(index.byAd.get("120001")?.campaign?.id, "camp-a");
@@ -85,15 +113,49 @@ async function main() {
   assert.equal(index.dailyByAd.get("120001")?.length, 2);
   assert.equal(index.byAd.has("999"), false);
 
+  // ── La cadena de atribución (oportunidad → Pauta → primera → última) ──────
+  const chainContacts = [
+    contact({ id: "c-opp" }),                                                            // su oportunidad trae el id
+    contact({ id: "c-pauta", adId: "999999999999" }),                                    // su Pauta trae el id; el propio adId es de otra cuenta
+    contact({ id: "c-first", attributions: [{ isFirst: true, utmAdId: "120002" }, { isFirst: false, utmAdId: "120003" }] }),
+    contact({ id: "c-last", attributions: [{ isFirst: true, utmAdId: "555555555555" }, { isFirst: false, utmAdId: "120003" }] }),
+    contact({ id: "c-src", attributionSource: { utmAdId: "120001" } }),                  // el objeto del endpoint individual
+    contact({ id: "c-lastsrc", lastAttributionSource: { utmAdId: "120002" } }),
+    contact({ id: "c-none", attributions: [{ isFirst: true, utmSource: "facebook" }] }),
+    contact({ id: "c-csv", attributions: [{ isFirst: true, medium: "csv_import", utmAdId: "120001" }] }),
+    contact({ id: "c-organic" }),
+  ];
+  const chainOpps = [opp({ id: "o-opp", contactId: "c-opp", adId: "120001" }), opp({ id: "o-noid", contactId: "c-pauta" })];
+  const chainPautas = [pauta({ id: "pa-1", contactId: "c-pauta", nombrePauta: "X - https://fb.me/y - 120003" }), pauta({ id: "pa-2", contactId: "c-none" })];
+  const cctx = buildAttributionContext({ index, contacts: chainContacts, opportunities: chainOpps, pautas: chainPautas });
+  const byId = new Map(chainContacts.map((c) => [c.id, c]));
+  assert.equal(contactAdId(byId.get("c-opp")!, cctx), "120001", "1º: el ad id de su oportunidad");
+  assert.equal(contactAdId(byId.get("c-pauta")!, cctx), "120003", "2º: el objeto Pauta gana al adId propio");
+  assert.equal(contactAdId(byId.get("c-first")!, cctx), "120002", "3º: primera atribución");
+  assert.equal(contactAdId(byId.get("c-last")!, cctx), "120003", "4º: última atribución cuando la primera no está en Meta");
+  assert.equal(contactAdId(byId.get("c-src")!, cctx), "120001", "attributionSource cuenta como primera");
+  assert.equal(contactAdId(byId.get("c-lastsrc")!, cctx), "120002", "lastAttributionSource cuenta como última");
+  assert.equal(contactAdId(byId.get("c-none")!, cctx), null);
+  assert.equal(classifyContact(byId.get("c-opp")!, cctx), "exact");
+  assert.equal(classifyContact(byId.get("c-pauta")!, cctx), "exact");
+  assert.equal(classifyContact(byId.get("c-last")!, cctx), "exact");
+  assert.equal(classifyContact(byId.get("c-none")!, cctx), "noAdId", "tiene Pauta pero sin id");
+  assert.equal(classifyContact(byId.get("c-csv")!, cctx), "notPauta", "csv_import gana incluso con ad id");
+  assert.equal(classifyContact(byId.get("c-organic")!, cctx), "notPauta");
+  const unknown = contact({ id: "c-unk", attributions: [{ isFirst: true, utmAdId: "777777777777" }] });
+  assert.equal(classifyContact(unknown, cctx), "unknownAd");
+  assert.equal(resolveOppAdId(chainOpps[1], cctx), "120003", "opp sin adId → Pauta del contacto");
+  assert.equal(classifyLead(chainOpps[1], cctx), "exact");
+  assert.equal(resolveOppAdId(chainOpps[0], cctx), "120001", "el adId propio de la opp manda");
+
   // --- classifyLead: cuatro niveles; csv_import gana incluso con ad id
-  const pautaContacts = new Set(["c-p"]);
-  const ctx = { index, pautaContacts };
-  assert.equal(classifyLead(opp({ id: "e", adId: "120001" }), ctx), "exact");
-  assert.equal(classifyLead(opp({ id: "u", adId: "777777", source: "facebook" }), ctx), "unknownAd");
-  assert.equal(classifyLead(opp({ id: "p", contactId: "c-p" }), ctx), "noAdId", "de pauta por el objeto Pauta, sin id");
-  assert.equal(classifyLead(opp({ id: "n", source: "referido" }), ctx), "notPauta");
+  const pctx = buildAttributionContext({ index, contacts: [], opportunities: [], pautas: [pauta({ id: "pp", contactId: "c-p" })] });
+  assert.equal(classifyLead(opp({ id: "e", adId: "120001" }), pctx), "exact");
+  assert.equal(classifyLead(opp({ id: "u", adId: "777777", source: "facebook" }), pctx), "unknownAd");
+  assert.equal(classifyLead(opp({ id: "p", contactId: "c-p" }), pctx), "noAdId", "de pauta por el objeto Pauta, sin id");
+  assert.equal(classifyLead(opp({ id: "n", source: "referido" }), pctx), "notPauta");
   assert.equal(
-    classifyLead(opp({ id: "csv", adId: "120001", attributions: [{ medium: "csv_import" }] }), ctx),
+    classifyLead(opp({ id: "csv", adId: "120001", attributions: [{ medium: "csv_import" }] }), pctx),
     "notPauta",
     "importado por CSV nunca entra al costo"
   );
@@ -102,7 +164,9 @@ async function main() {
   assert.equal(localDay("2026-08-07T05:36:00.000Z"), "2026-08-06");
   assert.equal(localDay("2026-08-07T06:00:00.000Z"), "2026-08-07");
 
-  // --- buildCostSummary sobre agosto
+  // ── Cohorte sobre agosto ──────────────────────────────────────────────────
+  // Cada oportunidad tiene su contacto (c-<id>), creado al mismo tiempo y sin
+  // atribución propia: se atribuye por su oportunidad (eslabón 1).
   const range = { since: "2026-08-01", until: "2026-08-31" };
   const opps = [
     opp({ id: "a1", adId: "120001", createdAt: "2026-08-10T16:00:00.000Z", status: "won" }),
@@ -114,40 +178,48 @@ async function main() {
     opp({ id: "noid", contactId: "c-p", createdAt: "2026-08-15T12:00:00.000Z" }),
     opp({ id: "org", source: "referido", createdAt: "2026-08-15T12:00:00.000Z" }),
   ];
-  const s = buildCostSummary({ opportunities: opps, meta, index, range, pautaContacts });
+  const contacts = opps.map((o) => contact({ id: o.contactId, createdAt: o.createdAt }));
+  const pautas = [pauta({ id: "pp", contactId: "c-p" })];
+  const inputFor = (m: MetaAdsData, os: Opportunity[] = opps, r: typeof range | null = range) => {
+    const idx = buildMetaIndex(m);
+    return { contacts, opportunities: os, meta: m, index: idx, range: r, ctx: buildAttributionContext({ index: idx, contacts, opportunities: os, pautas }) };
+  };
+
+  const s = buildCostSummary(inputFor(meta));
   assert.equal(s.mixedCurrency, true, "act_2 es USD");
   assert.deepEqual(s.spendByCurrency, { MXN: 450, USD: 10 });
   assert.equal(s.spend, null, "con moneda mixta no hay total consolidado");
   assert.equal(s.cpl, null);
   assert.equal(s.leadsMeta, 6);
-  assert.equal(s.leadsCrm, 4, "a1 a2 a3 a4; sep queda fuera por día local");
+  assert.equal(s.leadsCrm, 4, "c-a1 c-a2 c-a3 c-a4; c-sep queda fuera por día local");
+  assert.equal(s.opportunities, 4);
   assert.equal(s.won, 2, "status won + etapa Negocio Ganado (isWonOpp)");
-  assert.equal(s.unknownAdLeads, 1);
-  assert.equal(s.noAdIdLeads, 1);
+  assert.equal(s.unknownAdLeads, 1, "c-unk: su opp trae un ad que Meta no tiene");
+  assert.equal(s.noAdIdLeads, 1, "c-p: tiene Pauta, sin id");
 
   // --- solo MXN: costos consolidados
   const mxn: MetaAdsData = { ...meta, daily: meta.daily.filter((d) => d.adId !== "120009") };
-  const s2 = buildCostSummary({ opportunities: opps, meta: mxn, index: buildMetaIndex(mxn), range, pautaContacts });
+  const s2 = buildCostSummary(inputFor(mxn));
   assert.equal(s2.mixedCurrency, false);
   assert.equal(s2.currency, "MXN");
   assert.equal(s2.spend, 450);
-  assert.equal(s2.cpl, 112.5);
+  assert.equal(s2.cpl, 112.5, "450 / 4 contactos");
   assert.equal(s2.cpa, 225);
 
   // --- sin leads en la ventana → null, nunca 0 ni Infinity
-  const s3 = buildCostSummary({ opportunities: [], meta: mxn, index: buildMetaIndex(mxn), range, pautaContacts });
+  const s3 = buildCostSummary({ ...inputFor(mxn, []), contacts: [] });
   assert.equal(s3.spend, 450);
   assert.equal(s3.leadsCrm, 0);
   assert.equal(s3.cpl, null);
   assert.equal(s3.cpa, null);
 
   // --- range null = todo
-  const s4 = buildCostSummary({ opportunities: opps, meta: mxn, index: buildMetaIndex(mxn), range: null, pautaContacts });
+  const s4 = buildCostSummary(inputFor(mxn, opps, null));
   assert.equal(s4.spend, 1449);
   assert.equal(s4.leadsCrm, 5);
 
   // --- por campaña
-  const rows = buildCampaignPerformance({ opportunities: opps, meta: mxn, index: buildMetaIndex(mxn), range, pautaContacts });
+  const rows = buildCampaignPerformance(inputFor(mxn));
   const a = rows.find((r) => r.campaignId === "camp-a")!;
   const b = rows.find((r) => r.campaignId === "camp-b")!;
   assert.equal(a.spend, 150);
@@ -157,6 +229,7 @@ async function main() {
   assert.equal(a.ctr, 0.04);
   assert.equal(a.leadsMeta, 6);
   assert.equal(a.leadsCrm, 3);
+  assert.equal(a.opportunities, 3);
   assert.equal(a.won, 2);
   assert.equal(a.cpl, 50);
   assert.equal(a.cpa, 75);
@@ -168,8 +241,8 @@ async function main() {
   assert.equal(rows.some((r) => r.campaignId === "camp-usd"), false, "sin filas en la ventana no aparece");
 
   // ── buildMetaReport ────────────────────────────────────────────────────────
-  const mxnIdx = buildMetaIndex(mxn);
-  const base = { opportunities: opps, meta: mxn, index: mxnIdx, range, pautaContacts };
+  const base = inputFor(mxn);
+  const mxnIdx = base.index;
 
   // --- none: una fila total, igual que buildCostSummary
   const total = buildMetaReport({ ...base, groupBy: "none" });
@@ -177,6 +250,7 @@ async function main() {
   assert.equal(total[0].key, "total");
   assert.equal(total[0].spend, 450);
   assert.equal(total[0].leadsCrm, 4);
+  assert.equal(total[0].opportunities, 4);
   assert.equal(total[0].currency, "MXN");
   assert.equal(total[0].cpl, 112.5);
 
@@ -188,9 +262,9 @@ async function main() {
   const byMonth = buildMetaReport({ ...base, groupBy: "month", range: null });
   assert.deepEqual(byMonth.map((r) => r.key), ["2026-08", "2026-09"]);
   assert.equal(byMonth[0].spend, 450);
-  assert.equal(byMonth[0].leadsCrm, 4, "a4 (31 ago 23:59 local) cae en agosto");
+  assert.equal(byMonth[0].leadsCrm, 4, "c-a4 (31 ago 23:59 local) cae en agosto");
   assert.equal(byMonth[1].spend, 999);
-  assert.equal(byMonth[1].leadsCrm, 1, "sep (1 sep 00:01 local) cae en septiembre");
+  assert.equal(byMonth[1].leadsCrm, 1, "c-sep (1 sep 00:01 local) cae en septiembre");
   assert.equal(byMonth[1].label, "2026-09");
 
   // --- adset y ad
@@ -218,19 +292,25 @@ async function main() {
   const many = Array.from({ length: 80 }, (_, i) =>
     opp({ id: `m${i}`, adId: "120001", contactId: "c-shared", createdAt: "2026-08-12T12:00:00.000Z" })
   );
-  const cappedRow = buildMetaReport({ ...base, opportunities: many, groupBy: "ad", includeIds: true }).find((r) => r.key === "120001")!;
-  assert.equal(cappedRow.leadsCrm, 80, "el conteo no se topa");
+  const shared = [contact({ id: "c-shared", createdAt: "2026-08-12T12:00:00.000Z" })];
+  const manyIdx = buildMetaIndex(mxn);
+  const cappedRow = buildMetaReport({
+    contacts: shared, opportunities: many, meta: mxn, index: manyIdx, range,
+    ctx: buildAttributionContext({ index: manyIdx, contacts: shared, opportunities: many, pautas: [] }),
+    groupBy: "ad", includeIds: true,
+  }).find((r) => r.key === "120001")!;
+  assert.equal(cappedRow.opportunities, 80, "el conteo no se topa");
+  assert.equal(cappedRow.leadsCrm, 1, "un solo contacto detrás de las 80");
   assert.equal(cappedRow.oppIds!.length, 50, "los ids sí (cap 50)");
-  assert.deepEqual(cappedRow.contactIds, ["c-shared"], "contactIds distintos");
+  assert.deepEqual(cappedRow.contactIds, ["c-shared"]);
 
   // --- moneda mixta: la fila total lleva "?" y sin costos; por campaña cada una con la suya
-  const mixedIdx = buildMetaIndex(meta);
-  const mixedTotal = buildMetaReport({ opportunities: opps, meta, index: mixedIdx, range, pautaContacts, groupBy: "none" });
+  const mixedTotal = buildMetaReport({ ...inputFor(meta), groupBy: "none" });
   assert.equal(mixedTotal[0].currency, "?");
   assert.equal(mixedTotal[0].spend, 460, "el gasto se suma igual; la UI sabe por currency que no es comparable");
   assert.equal(mixedTotal[0].cpl, null);
   assert.equal(mixedTotal[0].cpm, null);
-  const mixedCamp = buildMetaReport({ opportunities: opps, meta, index: mixedIdx, range, pautaContacts, groupBy: "campaign" });
+  const mixedCamp = buildMetaReport({ ...inputFor(meta), groupBy: "campaign" });
   assert.equal(mixedCamp.find((r) => r.key === "camp-usd")?.currency, "USD");
 
   // --- defaultCurrency y un ad fuera de la jerarquía NO ensucia la moneda
@@ -242,13 +322,44 @@ async function main() {
   assert.equal(defaultCurrency(meta), null);
   const orphanDaily: MetaAdsData = {
     ...mxnOnly,
-    daily: [...mxn.daily, { adId: "999999", date: "2026-08-15", spend: 5, impressions: 10, reach: 9, clicks: 1, linkClicks: 1, leadsForm: 0, leadsMsg: 0 }],
+    daily: [...mxnOnly.daily, { adId: "999999", date: "2026-08-15", spend: 5, impressions: 10, reach: 9, clicks: 1, linkClicks: 1, leadsForm: 0, leadsMsg: 0 }],
   };
-  const orphanSummary = buildCostSummary({ opportunities: opps, meta: orphanDaily, index: buildMetaIndex(orphanDaily), range, pautaContacts });
+  const orphanSummary = buildCostSummary(inputFor(orphanDaily));
   assert.equal(orphanSummary.mixedCurrency, false, "un ad borrado (sin jerarquía) hereda la única moneda de la cuenta");
   assert.equal(orphanSummary.spend, 455);
-  const orphanTotal = buildMetaReport({ opportunities: opps, meta: orphanDaily, index: buildMetaIndex(orphanDaily), range, pautaContacts, groupBy: "none" });
+  const orphanTotal = buildMetaReport({ ...inputFor(orphanDaily), groupBy: "none" });
   assert.equal(orphanTotal[0].currency, "MXN");
+
+  // ── La cohorte es de CONTACTOS; las oportunidades son el embudo debajo ─────
+  const cohortContacts = [
+    contact({ id: "k1", createdAt: "2026-08-10T16:00:00.000Z" }),                       // por su opp (a1, ganada)
+    contact({ id: "k2", createdAt: "2026-08-11T16:00:00.000Z", attributions: [{ isFirst: true, utmAdId: "120001" }] }),
+    contact({ id: "k3", createdAt: "2026-08-12T16:00:00.000Z" }),                       // por Pauta
+    contact({ id: "k4", createdAt: "2026-09-02T16:00:00.000Z", attributions: [{ isFirst: true, utmAdId: "120002" }] }), // fuera de agosto
+    contact({ id: "k5", createdAt: "2026-08-12T16:00:00.000Z", attributions: [{ isFirst: true, utmAdId: "444444444444" }] }), // unknownAd
+    contact({ id: "k6", createdAt: "2026-08-12T16:00:00.000Z" }),                       // orgánico
+  ];
+  const cohortOpps = [
+    opp({ id: "a1", contactId: "k1", adId: "120001", createdAt: "2026-08-10T17:00:00.000Z", status: "won" }),
+    opp({ id: "a2", contactId: "k2", createdAt: "2026-08-15T17:00:00.000Z" }),           // sin adId: hereda el de k2
+    opp({ id: "a6", contactId: "k6", createdAt: "2026-08-15T17:00:00.000Z" }),           // orgánica
+  ];
+  const cohortPautas = [pauta({ id: "kp3", contactId: "k3", nombrePauta: "X - https://fb.me/z - 120002" })];
+  const kctx = buildAttributionContext({ index: mxnIdx, contacts: cohortContacts, opportunities: cohortOpps, pautas: cohortPautas });
+  const ks = buildCostSummary({ contacts: cohortContacts, opportunities: cohortOpps, meta: mxn, index: mxnIdx, range, ctx: kctx });
+  assert.equal(ks.leadsCrm, 3, "k1 k2 k3 (k4 fuera de ventana, k5 unknownAd, k6 orgánico)");
+  assert.equal(ks.opportunities, 2, "a1 y a2 (a6 es orgánica)");
+  assert.equal(ks.won, 1);
+  assert.equal(ks.cpl, 150, "450 / 3 contactos");
+  assert.equal(ks.cpa, 450);
+  assert.equal(ks.unknownAdLeads, 1);
+  const krows = buildMetaReport({ contacts: cohortContacts, opportunities: cohortOpps, meta: mxn, index: mxnIdx, range, ctx: kctx, groupBy: "campaign", includeIds: true });
+  const ka = krows.find((r) => r.key === "camp-a")!;
+  assert.equal(ka.leadsCrm, 3, "los tres contactos caen en camp-a (120001/120002)");
+  assert.equal(ka.opportunities, 2);
+  assert.equal(ka.won, 1);
+  assert.deepEqual([...ka.contactIds!].sort(), ["k1", "k2", "k3"]);
+  assert.deepEqual([...ka.oppIds!].sort(), ["a1", "a2"]);
 
   console.log("✅ verify:meta-attribution OK");
 }

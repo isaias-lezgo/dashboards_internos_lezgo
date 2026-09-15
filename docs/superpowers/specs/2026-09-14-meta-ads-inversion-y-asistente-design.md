@@ -32,6 +32,17 @@ pantalla.
 5. **El gasto no se recorta por atributo.** Con Asesor/Status/Origen/Tipo de pauta
    activos, `gasto ÷ leads de un asesor` sería un CPL falso. Se muestran Leads CRM y
    Ganadas recortados y **CPL/CPA en `—`** con la explicación en el `ScopePill`.
+6. **El lead es el CONTACTO, no la oportunidad** (revisión 2026-09-14, tras ver
+   "248 leads contra 2,354 de Meta" en Lezgo Suite: 5,477 contactos, 404
+   oportunidades — la mayoría de los leads nunca llega a oportunidad). El ad id de un
+   contacto se resuelve con la cadena **oportunidad → objeto Pauta del contacto →
+   primera atribución → última atribución**; cada eslabón cuenta solo si su id está
+   en Meta. El objeto Pauta aporta su id porque `nombrePauta` termina en él
+   (`<titular> - <liga> - <adId>`). Medido: 246 + 1,021 + 408 + 2 = 1,677 contactos,
+   71 % de lo que Meta reporta, 75-85 % mes a mes desde que existe el objeto Pauta.
+   Las oportunidades (propio ad id, o el de su contacto) y las ganadas son el embudo
+   debajo: **CPL = gasto ÷ contactos, CPA = gasto ÷ ganadas**. Un tile más
+   ("Oportunidades") y una columna más ("Opps") en la tabla, el PDF y la herramienta.
 
 ---
 
@@ -63,14 +74,15 @@ se memoiza por referencia de `metaAds`. `buildCostSummary` y `buildMetaReport` r
 `opportunities` (filtradas) — como `range` se vuelve a aplicar adentro, pasar las
 filtradas no cambia el resultado por fecha y sí aplica los atributos al lado CRM.
 
-**Fila de cinco tiles** (`SummaryTile`, mismo componente de `dashboard-ui.tsx`):
+**Fila de seis tiles** (`SummaryTile`, mismo componente de `dashboard-ui.tsx`):
 
 | Tile | Valor | Subtexto | Clic |
 |---|---|---|---|
 | Gasto | `spend` en moneda de la cuenta (`$12,825.99 MXN`) | ventana en días locales | abre la tabla (scroll) |
-| Leads CRM | `leadsCrm` | "Meta reportó `leadsMeta`" | drawer: las opps `exact` de la ventana |
+| Leads CRM | `leadsCrm` (contactos) | "Meta reportó `leadsMeta`" | drawer: los contactos `exact` de la ventana |
 | CPL | `cpl` o `—` | "por lead del CRM" | ídem |
-| Ganadas | `won` | `won/leadsCrm` % | drawer: las ganadas |
+| Oportunidades | `opportunities` | `opps/leadsCrm` % | drawer: las opps `exact` |
+| Ganadas | `won` | `won/opportunities` % | drawer: las ganadas |
 | CPA | `cpa` o `—` | "por venta" | ídem |
 
 Debajo, una **línea de rendimiento** en texto pequeño: `Impresiones · Clics · CPM ·
@@ -84,10 +96,10 @@ atributos activos añade "— CPL y CPA no se calculan". Con `metaAdsStatus.part
 
 **Tabla "Gasto y costo por campaña"** (`components/ui/table`, dentro de un
 `overflow-x-auto`, nunca `ScrollArea`): columnas Campaña · Gasto · Impr. · Clics · CPM ·
-CTR · Leads Meta · Leads CRM · Ganadas · CPL · CPA; ordenada por gasto desc; **Top N**
+CTR · Leads Meta · Leads CRM · Opps · Ganadas · CPL · CPA; ordenada por gasto desc; **Top N**
 con el slider que ya usan las gráficas (`visibleGroupKeys`, default 10); fila
-"Otras (N)" con la suma del resto. Clic en una fila → `onDrill` con las opps `exact` de
-esa campaña (`buildMetaReport` devuelve `contactIds`/`oppIds` por fila). Números con
+"Otras (N)" con la suma del resto. Clic en una fila → `onDrill` con los contactos `exact` de
+esa campaña (agrupados en el hook sin el tope de 50 ids). Números con
 `toLocaleString("es-MX")`; `null` se pinta `—`, nunca `$0`.
 
 **Moneda mixta**: el tile Gasto lista `spendByCurrency` ("$1,200 MXN · $300 USD"),

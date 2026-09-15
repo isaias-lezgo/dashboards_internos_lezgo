@@ -11,7 +11,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Coins, Users, Receipt, Trophy, HandCoins } from "lucide-react"
+import { Coins, Users, Receipt, Target, Trophy, HandCoins } from "lucide-react"
 import {
   DashboardCard,
   ChartCardHeader,
@@ -22,15 +22,17 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { DrillState } from "@/components/dashboard/chart-drill-drawer"
 import type { ResolvedDateRange } from "@/lib/date-range"
-import type { MetaAdsData, MetaAdsStatus, Opportunity, Pauta } from "@/lib/types"
+import type { Contact, MetaAdsData, MetaAdsStatus, Opportunity, Pauta } from "@/lib/types"
 import type { ReportSection } from "@/lib/report"
 import {
+  buildAttributionContext,
   buildCostSummary,
   buildMetaIndex,
   buildMetaReport,
+  classifyContact,
   classifyLead,
+  contactAdId,
   localDay,
-  oppAdId,
   type CostSummary,
   type DayRange,
   type MetaReportRow,
@@ -85,7 +87,7 @@ export function buildMetaReportSection(inv: MetaInvestment): ReportSection {
     id: "meta-investment",
     title: "Inversión en pauta",
     explanation:
-      "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con las oportunidades creadas en ese periodo. CPL y CPA usan los leads del CRM, no los que Meta reporta." +
+      "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con los contactos creados en ese periodo (oportunidad → objeto Pauta → primera atribución → última). Leads CRM son contactos; CPL usa esos leads, no los que Meta reporta; CPA usa las oportunidades ganadas." +
       (inv.costsSuppressed ? " Con filtros de atributo activos el gasto no se recorta, por eso CPL y CPA no se calculan." : ""),
     blocks: [
       {
@@ -94,6 +96,7 @@ export function buildMetaReportSection(inv: MetaInvestment): ReportSection {
           ...metaCoverKpis(inv),
           { label: "Leads CRM", value: s.leadsCrm.toLocaleString("es-MX") },
           { label: "Leads Meta", value: s.leadsMeta.toLocaleString("es-MX") },
+          { label: "Oportunidades", value: s.opportunities.toLocaleString("es-MX") },
           { label: "Ganadas", value: s.won.toLocaleString("es-MX") },
           { label: "CPA", value: suppressed ? "—" : money(s.cpa, currency) },
           { label: "Impresiones", value: inv.rows.reduce((a, r) => a + r.impressions, 0).toLocaleString("es-MX") },
@@ -102,7 +105,7 @@ export function buildMetaReportSection(inv: MetaInvestment): ReportSection {
       },
       {
         t: "table",
-        headers: ["Campaña", "Gasto", "Impr.", "Clics", "CPM", "CTR", "Leads Meta", "Leads CRM", "Ganadas", "CPL", "CPA"].map(col),
+        headers: ["Campaña", "Gasto", "Impr.", "Clics", "CPM", "CTR", "Leads Meta", "Leads CRM", "Opps", "Ganadas", "CPL", "CPA"].map(col),
         rows: top.map((r) => [
           r.label,
           cell(r.spend, r.currency),
@@ -112,6 +115,7 @@ export function buildMetaReportSection(inv: MetaInvestment): ReportSection {
           pct(r.ctr),
           r.leadsMeta.toLocaleString("es-MX"),
           r.leadsCrm.toLocaleString("es-MX"),
+          r.opportunities.toLocaleString("es-MX"),
           r.won.toLocaleString("es-MX"),
           suppressed ? "—" : cell(r.cpl, r.currency),
           suppressed ? "—" : cell(r.cpa, r.currency),
@@ -127,63 +131,64 @@ export interface MetaInvestment {
   summary: CostSummary
   /** Por campaña, gasto desc. */
   rows: MetaReportRow[]
-  /** Campaña → sus oportunidades `exact` de la ventana, SIN tope: el drill debe traer todas. */
-  oppsByCampaign: Map<string, Opportunity[]>
   range: DayRange
   /** Filtros de atributo activos: CPL/CPA no se calculan. */
   costsSuppressed: boolean
-  oppById: Map<string, Opportunity>
-  /** Las opps `exact` de la ventana, para los tiles. */
+  /** Los CONTACTOS `exact` de la ventana (los leads), y por campaña, sin tope. */
+  exactContacts: Contact[]
+  contactsByCampaign: Map<string, Contact[]>
+  /** Las oportunidades `exact` de la ventana (el embudo debajo de los leads). */
   exactOpps: Opportunity[]
 }
 
 export function useMetaInvestment(p: {
   metaAds: MetaAdsData | null | undefined
-  /** Ya filtradas por fecha Y atributos: el rango se vuelve a aplicar adentro. */
+  /** Ya filtrados por fecha Y atributos: el rango se vuelve a aplicar adentro. */
+  contacts: Contact[]
   opportunities: Opportunity[]
-  pautas: Pauta[]
+  /** Historial completo: la cadena de un contacto mira sus opps y pautas de siempre. */
+  allContacts: Contact[]
+  allOpportunities: Opportunity[]
+  allPautas: Pauta[]
   dateRange: ResolvedDateRange | null | undefined
   attributeFiltersActive: boolean
 }): MetaInvestment | null {
-  const { metaAds, opportunities, pautas, dateRange, attributeFiltersActive } = p
+  const { metaAds, contacts, opportunities, allContacts, allOpportunities, allPautas, dateRange, attributeFiltersActive } = p
   const index = useMemo(() => (metaAds ? buildMetaIndex(metaAds) : null), [metaAds])
-  const pautaContacts = useMemo(() => {
-    const s = new Set<string>()
-    for (const x of pautas) if (x.contactId) s.add(x.contactId)
-    return s
-  }, [pautas])
-  // El mismo día LOCAL con el que el filtro recortó las oportunidades.
+  const ctx = useMemo(
+    () => (index ? buildAttributionContext({ index, contacts: allContacts, opportunities: allOpportunities, pautas: allPautas }) : null),
+    [index, allContacts, allOpportunities, allPautas]
+  )
+  // El mismo día LOCAL con el que el filtro recortó los registros.
   const range = useMemo<DayRange>(
     () => (dateRange ? { since: localDay(dateRange.from.toISOString()), until: localDay(dateRange.to.toISOString()) } : null),
     [dateRange]
   )
   return useMemo(() => {
-    if (!metaAds || !index) return null
-    const base = { opportunities, meta: metaAds, index, range, pautaContacts }
+    if (!metaAds || !index || !ctx) return null
+    const base = { contacts, opportunities, meta: metaAds, index, range, ctx }
     const summary = buildCostSummary(base)
     const rows = buildMetaReport({ ...base, groupBy: "campaign" })
-    const oppById = new Map(opportunities.map((o) => [o.id, o]))
-    const ctx = { index, pautaContacts }
-    const exactOpps = opportunities.filter(
-      (o) => (!range || (localDay(o.createdAt) >= range.since && localDay(o.createdAt) <= range.until)) && classifyLead(o, ctx) === "exact"
-    )
+    const within = (iso: string) => !range || (localDay(iso) >= range.since && localDay(iso) <= range.until)
+    const exactContacts = contacts.filter((c) => within(c.createdAt) && classifyContact(c, ctx) === "exact")
+    const exactOpps = opportunities.filter((o) => within(o.createdAt) && classifyLead(o, ctx) === "exact")
     // El tope de 50 ids de buildMetaReport es para el asistente; el drawer del
-    // panel debe abrir las 64 de una campaña con 64, así que se agrupan aquí.
-    const oppsByCampaign = new Map<string, Opportunity[]>()
-    for (const o of exactOpps) {
-      const campaignId = index.byAd.get(oppAdId(o) ?? "")?.campaign?.id
+    // panel debe abrir los 64 leads de una campaña con 64, así que se agrupan aquí.
+    const contactsByCampaign = new Map<string, Contact[]>()
+    for (const c of exactContacts) {
+      const campaignId = index.byAd.get(contactAdId(c, ctx) ?? "")?.campaign?.id
       if (!campaignId) continue
-      const list = oppsByCampaign.get(campaignId)
-      if (list) list.push(o)
-      else oppsByCampaign.set(campaignId, [o])
+      const list = contactsByCampaign.get(campaignId)
+      if (list) list.push(c)
+      else contactsByCampaign.set(campaignId, [c])
     }
-    return { summary, rows, range, costsSuppressed: attributeFiltersActive, oppById, exactOpps, oppsByCampaign }
-  }, [metaAds, index, opportunities, range, pautaContacts, attributeFiltersActive])
+    return { summary, rows, range, costsSuppressed: attributeFiltersActive, exactContacts, contactsByCampaign, exactOpps }
+  }, [metaAds, index, ctx, contacts, opportunities, range, attributeFiltersActive])
 }
 
 // ── UI ──────────────────────────────────────────────────────────────────────
 
-const TABLE_COLS = ["Campaña", "Gasto", "Impr.", "Clics", "CPM", "CTR", "Leads Meta", "Leads CRM", "Ganadas", "CPL", "CPA"]
+const TABLE_COLS = ["Campaña", "Gasto", "Impr.", "Clics", "CPM", "CTR", "Leads Meta", "Leads CRM", "Opps", "Ganadas", "CPL", "CPA"]
 
 export function MetaInvestmentSection({
   inv,
@@ -218,10 +223,12 @@ export function MetaInvestmentSection({
 
   const drillOpps = (title: string, opps: Opportunity[], subtitle?: string) =>
     onDrill({ open: true, title, subtitle, opportunities: opps })
+  const drillContacts = (title: string, items: Contact[], subtitle?: string) =>
+    onDrill({ open: true, title, subtitle, opportunities: [], contactItems: items })
 
   const scopeTooltip = (
     <>
-      Cohorte por fecha de creación: el gasto de la ventana contra las oportunidades creadas en ella cuyo anuncio está en Meta.
+      Cohorte por fecha de creación: el gasto de la ventana contra los contactos creados en ella cuyo anuncio está en Meta (oportunidad → objeto Pauta → primera atribución → última). Oportunidades y ganadas son el embudo debajo.
       El gasto sigue solo al filtro de fecha; los filtros de atributo recortan leads y ganadas.
       {costsSuppressed && " — Con filtros de atributo activos CPL y CPA no se calculan."}
       {s.mixedCurrency && " Las cuentas mezclan monedas: los costos no se consolidan."}
@@ -239,7 +246,7 @@ export function MetaInvestmentSection({
         actions={<ScopePill label={costsSuppressed ? "sin costos con filtros" : "cohorte por fecha"} tooltip={scopeTooltip} />}
       />
 
-      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <SummaryTile label="Gasto" icon={Coins} onClick={() => document.getElementById("meta-campaign-table")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}>
           <p className="mt-2 break-words text-[17px] font-bold leading-tight tabular-nums text-foreground sm:text-[22px] sm:leading-none">{spendLabel}</p>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -247,20 +254,27 @@ export function MetaInvestmentSection({
           </p>
         </SummaryTile>
 
-        <SummaryTile label="Leads CRM" icon={Users} onClick={() => drillOpps("Leads de Meta en el CRM", inv.exactOpps, "Oportunidades creadas en la ventana con anuncio en Meta")}>
+        <SummaryTile label="Leads CRM" icon={Users} onClick={() => drillContacts("Leads de Meta en el CRM", inv.exactContacts, "Contactos creados en la ventana con anuncio en Meta")}>
           <p className="mt-2 text-[28px] font-bold leading-none tabular-nums text-foreground">{int(s.leadsCrm)}</p>
           <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">Meta reportó {int(s.leadsMeta)}</p>
         </SummaryTile>
 
-        <SummaryTile label="CPL" icon={Receipt} tone="accent" onClick={() => drillOpps("Leads de Meta en el CRM", inv.exactOpps)}>
+        <SummaryTile label="CPL" icon={Receipt} tone="accent" onClick={() => drillContacts("Leads de Meta en el CRM", inv.exactContacts)}>
           <p className="mt-2 break-words text-[17px] font-bold leading-tight tabular-nums text-primary sm:text-[22px] sm:leading-none">{money(cplShown, currency)}</p>
           <p className="mt-2 text-[11px] text-muted-foreground">{costsSuppressed ? "no aplica con filtros" : "por lead del CRM"}</p>
+        </SummaryTile>
+
+        <SummaryTile label="Oportunidades" icon={Target} onClick={() => drillOpps("Oportunidades de Meta", inv.exactOpps, "Creadas en la ventana con anuncio en Meta (propio o de su contacto)")}>
+          <p className="mt-2 text-[28px] font-bold leading-none tabular-nums text-foreground">{int(s.opportunities)}</p>
+          <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
+            {s.leadsCrm > 0 ? `${((s.opportunities / s.leadsCrm) * 100).toLocaleString("es-MX", { maximumFractionDigits: 1 })}% de los leads` : "—"}
+          </p>
         </SummaryTile>
 
         <SummaryTile label="Ganadas" icon={Trophy} onClick={() => drillOpps("Ganadas de Meta", inv.exactOpps.filter(isWonOpp))}>
           <p className="mt-2 text-[28px] font-bold leading-none tabular-nums text-foreground">{int(s.won)}</p>
           <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
-            {s.leadsCrm > 0 ? `${((s.won / s.leadsCrm) * 100).toLocaleString("es-MX", { maximumFractionDigits: 1 })}% de los leads` : "—"}
+            {s.opportunities > 0 ? `${((s.won / s.opportunities) * 100).toLocaleString("es-MX", { maximumFractionDigits: 1 })}% de las opps` : "—"}
           </p>
         </SummaryTile>
 
@@ -293,7 +307,7 @@ export function MetaInvestmentSection({
               <TableRow
                 key={r.key}
                 className="cursor-pointer"
-                onClick={() => drillOpps(r.label, inv.oppsByCampaign.get(r.key) ?? [], `${int(r.leadsCrm)} leads · ${money(r.spend, r.currency)}`)}
+                onClick={() => drillContacts(r.label, inv.contactsByCampaign.get(r.key) ?? [], `${int(r.leadsCrm)} leads · ${money(r.spend, r.currency)}`)}
               >
                 <TableCell className="max-w-[22rem] truncate font-medium" title={r.label}>{r.label}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{cell(r.spend, r.currency)}</TableCell>
@@ -303,6 +317,7 @@ export function MetaInvestmentSection({
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{pct(r.ctr)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(r.leadsMeta)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(r.leadsCrm)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right tabular-nums">{int(r.opportunities)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(r.won)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{cell(costsSuppressed ? null : r.cpl, r.currency)}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{cell(costsSuppressed ? null : r.cpa, r.currency)}</TableCell>
@@ -318,6 +333,7 @@ export function MetaInvestmentSection({
                 <TableCell className="text-right">—</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(rest.reduce((a, r) => a + r.leadsMeta, 0))}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(restLeads)}</TableCell>
+                <TableCell className="whitespace-nowrap text-right tabular-nums">{int(rest.reduce((a, r) => a + r.opportunities, 0))}</TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular-nums">{int(rest.reduce((a, r) => a + r.won, 0))}</TableCell>
                 <TableCell className="text-right">—</TableCell>
                 <TableCell className="text-right">—</TableCell>

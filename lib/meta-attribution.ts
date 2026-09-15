@@ -1,16 +1,31 @@
 // lib/meta-attribution.ts
-// El cruce entre el gasto de Meta y las oportunidades del CRM. Puro: sin React,
-// sin Next, sin base. Lo usan el sync (oppAdId, PANEL_TIME_ZONE) y la entrega
-// ② en el panel y el asistente (índice, cohorte, `buildMetaReport` por
+// El cruce entre el gasto de Meta y los leads del CRM. Puro: sin React, sin
+// Next, sin base. Lo usan el sync (oppAdId, PANEL_TIME_ZONE), la entrega ② en el
+// panel y el asistente (índice, cohorte, `buildMetaReport` por
 // campaña/conjunto/anuncio/mes).
 //
-// La llave es el AD ID. Nunca se cruza por nombre: campaignName cubre menos que
-// adId en los seis proyectos y el objeto Pauta de este despliegue no trae nombre
-// de anuncio. Lo que no tiene id se cuenta aparte — es un hallazgo, no residuo.
+// La llave es el AD ID, y EL LEAD ES EL CONTACTO. En este despliegue la mayoría
+// de los leads nunca llega a oportunidad (Lezgo Suite: 5,477 contactos contra
+// 404 oportunidades), así que una cohorte de oportunidades daba 248 leads contra
+// 2,354 que Meta reportaba. El ad id de un contacto se resuelve con una cadena
+// de fallbacks, en este orden:
+//
+//   1. el ad id de alguna oportunidad del contacto (opp.adId / custom field)
+//   2. el objeto Pauta ligado al contacto — su nombre termina en el ad id
+//      ("<titular> - <liga> - <adId>", el formato que campaignHeadline parsea)
+//   3. la primera atribución (attributions[isFirst] / attributionSource)
+//   4. la última atribución (attributions[última] / lastAttributionSource)
+//
+// Cada eslabón "existe" solo si su id está en el dataset de Meta; si ninguno
+// está, se conserva el primer id crudo para clasificarlo como `unknownAd`.
+// Medido en Lezgo Suite (2026-09-14): 246 por oportunidad, 1,021 por Pauta,
+// 408 por primera atribución, 2 por última = 1,677 contactos, 71 % de lo que
+// Meta reporta y 75-85 % mes a mes desde que existe el objeto Pauta.
 //
 // Lo que NO hace: no reparte gasto entre proyectos, no convierte moneda, no
 // toca lib/pauta.ts. isDePauta sigue siendo "es de pauta"; esto es "cuánto costó".
 import type {
+  Contact,
   MetaAccount,
   MetaAd,
   MetaAdsData,
@@ -18,8 +33,9 @@ import type {
   MetaCampaign,
   MetaDailyRow,
   Opportunity,
+  Pauta,
 } from "./types";
-import { isDePauta, type HasKey } from "./pauta";
+import { isDePauta, isPaidTraffic, type HasKey } from "./pauta";
 import { isWonOpp } from "./opportunity-status";
 
 /** Toda fecha que el usuario ve va en esta zona (ver CLAUDE.md, "hora LOCAL"). */
@@ -37,12 +53,7 @@ function normalizeAdId(v: unknown): string | null {
   return digits.length >= 6 ? digits : null;
 }
 
-// La attribution nativa manda: es lo que GHL recibió del click; el custom field
-// es una copia que escribe Make y a veces difiere.
-export function oppAdId(opp: Opportunity): string | null {
-  const own = normalizeAdId(opp.adId);
-  if (own) return own;
-  const cf = opp.customFieldsResolved;
+function customFieldAdId(cf?: Record<string, string | string[]>): string | null {
   if (!cf) return null;
   for (const [name, val] of Object.entries(cf)) {
     if (!AD_ID_FIELD.test(name.trim())) continue;
@@ -50,6 +61,40 @@ export function oppAdId(opp: Opportunity): string | null {
     if (id) return id;
   }
   return null;
+}
+
+// El ad id PROPIO de la oportunidad. La attribution nativa manda: es lo que GHL
+// recibió del click; el custom field es una copia que escribe Make y a veces
+// difiere. No mira al contacto — para eso está resolveOppAdId.
+export function oppAdId(opp: Opportunity): string | null {
+  return normalizeAdId(opp.adId) ?? customFieldAdId(opp.customFieldsResolved);
+}
+
+// El id va después del ÚLTIMO " - ": un "Formulario Balvanera 210726" (fecha
+// pegada al nombre, sin separador) no cuenta.
+const PAUTA_NAME_ID_RE = /\s-\s(\d{6,})\s*$/;
+
+/** El ad id embebido al final de nombrePauta ("<titular> - <liga> - <adId>"). */
+export function pautaAdId(p: Pauta): string | null {
+  const m = PAUTA_NAME_ID_RE.exec(p.nombrePauta ?? "");
+  return m ? m[1] : null;
+}
+
+type AttributionEntry = { [key: string]: unknown };
+
+function firstAttribution(c: Contact): AttributionEntry | undefined {
+  const list = c.attributions ?? [];
+  return list.find((a) => a.isFirst === true) ?? list[0] ?? c.attributionSource ?? undefined;
+}
+
+function lastAttribution(c: Contact): AttributionEntry | undefined {
+  const list = c.attributions ?? [];
+  const last = [...list].reverse().find((a) => a.isFirst !== true) ?? list[list.length - 1];
+  return last ?? c.lastAttributionSource ?? undefined;
+}
+
+function attributionAdId(a?: AttributionEntry): string | null {
+  return a ? normalizeAdId(a.utmAdId) ?? normalizeAdId(a.adId) : null;
 }
 
 // ── Índice ──────────────────────────────────────────────────────────────────
@@ -80,32 +125,119 @@ export function buildMetaIndex(meta: MetaAdsData): MetaIndex {
   return { byAd, dailyByAd };
 }
 
+// ── Contexto de atribución ──────────────────────────────────────────────────
+
+export interface AttributionContext {
+  index: MetaIndex;
+  /** Contactos con al menos un registro Pauta: la señal "es de pauta" de isDePauta. */
+  pautaContacts: HasKey;
+  contactById: Map<string, Contact>;
+  oppsByContact: Map<string, Opportunity[]>;
+  pautasByContact: Map<string, Pauta[]>;
+}
+
+function groupBy<T>(items: T[], key: (t: T) => string | undefined): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const it of items) {
+    const k = key(it);
+    if (!k) continue;
+    const list = m.get(k);
+    if (list) list.push(it);
+    else m.set(k, [it]);
+  }
+  return m;
+}
+
+// Se construye una vez por payload (el panel lo memoiza; el asistente lo guarda
+// en ChatIndex). Recibe el HISTORIAL COMPLETO: la cadena de un contacto mira
+// sus oportunidades y pautas de siempre, no solo las de la ventana.
+export function buildAttributionContext(p: {
+  index: MetaIndex;
+  contacts: Contact[];
+  opportunities: Opportunity[];
+  pautas: Pauta[];
+}): AttributionContext {
+  const pautasByContact = groupBy(p.pautas, (x) => x.contactId);
+  return {
+    index: p.index,
+    pautaContacts: pautasByContact,
+    contactById: new Map(p.contacts.map((c) => [c.id, c])),
+    oppsByContact: groupBy(p.opportunities, (o) => o.contactId),
+    pautasByContact,
+  };
+}
+
+// ── La cadena ───────────────────────────────────────────────────────────────
+
+// Recorre los eslabones en orden y devuelve el primer id que ESTÁ en Meta. Si
+// ninguno está, devuelve el primer id crudo que apareció (→ unknownAd), y null
+// si no hubo ninguno (→ noAdId / notPauta).
+function resolveChain(ctx: AttributionContext, candidates: () => (string | null)[]): string | null {
+  let firstRaw: string | null = null;
+  for (const id of candidates()) {
+    if (!id) continue;
+    if (ctx.index.byAd.has(id)) return id;
+    if (!firstRaw) firstRaw = id;
+  }
+  return firstRaw;
+}
+
+/** El ad id de un contacto: oportunidad → Pauta → primera atribución → última. */
+export function contactAdId(c: Contact, ctx: AttributionContext): string | null {
+  return resolveChain(ctx, () => [
+    ...(ctx.oppsByContact.get(c.id) ?? []).map(oppAdId),
+    ...(ctx.pautasByContact.get(c.id) ?? []).map(pautaAdId),
+    attributionAdId(firstAttribution(c)),
+    normalizeAdId(c.adId),
+    attributionAdId(lastAttribution(c)),
+    customFieldAdId(c.customFieldsResolved),
+  ]);
+}
+
+/** El ad id de una oportunidad: el propio, y si no está en Meta, la cadena de su contacto. */
+export function resolveOppAdId(opp: Opportunity, ctx: AttributionContext): string | null {
+  const own = oppAdId(opp);
+  if (own && ctx.index.byAd.has(own)) return own;
+  const contact = ctx.contactById.get(opp.contactId);
+  const viaContact = contact ? contactAdId(contact, ctx) : null;
+  if (viaContact && ctx.index.byAd.has(viaContact)) return viaContact;
+  return own ?? viaContact;
+}
+
 // ── Clasificación ───────────────────────────────────────────────────────────
 
 /**
- * exact     — tiene ad id y ese ad está en el dataset de Meta. Entra al costo.
- * unknownAd — tiene ad id pero Meta no lo trajo: cuenta no asignada, de otra
+ * exact     — la cadena dio un ad que está en el dataset de Meta. Entra al costo.
+ * unknownAd — hay ad id pero Meta no lo trajo: cuenta no asignada, de otra
  *             empresa, o ad borrado. La señal para "Asignar cuenta".
- * noAdId    — es de pauta (isDePauta) pero no trae id. Hueco de captura.
+ * noAdId    — es de pauta pero ningún eslabón trae id. Hueco de captura.
  * notPauta  — orgánico, referido, o importado por CSV (gana incluso con ad id).
  */
 export type LeadAttribution = "exact" | "unknownAd" | "noAdId" | "notPauta";
 
-export interface AttributionContext {
-  index: MetaIndex;
-  pautaContacts: HasKey;
+function isCsvImport(attributions?: Array<{ [key: string]: unknown }>): boolean {
+  return (attributions ?? []).some((a) => a.medium === "csv_import");
 }
 
-function isCsvImport(opp: Opportunity): boolean {
-  return (opp.attributions ?? []).some((a) => a.medium === "csv_import");
+function classifyId(id: string | null, dePauta: boolean, ctx: AttributionContext): LeadAttribution {
+  if (id && ctx.index.byAd.has(id)) return "exact";
+  if (!dePauta) return "notPauta";
+  return id ? "unknownAd" : "noAdId";
+}
+
+export function classifyContact(c: Contact, ctx: AttributionContext): LeadAttribution {
+  if (isCsvImport(c.attributions)) return "notPauta";
+  const id = contactAdId(c, ctx);
+  // Un contacto es "de pauta" por su registro Pauta o por su propio tráfico
+  // pagado — los mismos dos criterios de isDePauta, a nivel contacto.
+  const dePauta = ctx.pautaContacts.has(c.id) || isPaidTraffic(c as unknown as Opportunity) || !!id;
+  return classifyId(id, dePauta, ctx);
 }
 
 export function classifyLead(opp: Opportunity, ctx: AttributionContext): LeadAttribution {
-  if (isCsvImport(opp)) return "notPauta";
-  const id = oppAdId(opp);
-  if (id && ctx.index.byAd.has(id)) return "exact";
-  if (!isDePauta(opp, ctx.pautaContacts)) return "notPauta";
-  return id ? "unknownAd" : "noAdId";
+  if (isCsvImport(opp.attributions)) return "notPauta";
+  const id = resolveOppAdId(opp, ctx);
+  return classifyId(id, isDePauta(opp, ctx.pautaContacts) || !!id, ctx);
 }
 
 // ── Fechas ──────────────────────────────────────────────────────────────────
@@ -134,12 +266,15 @@ function ratio(num: number, den: number): number | null {
 // ── Cohorte y costo ─────────────────────────────────────────────────────────
 
 export interface CostInput {
-  /** Historial completo o ya recortado: el rango se aplica aquí de todos modos. */
+  /** Contactos (ya recortados por atributos o no): el rango se aplica aquí. */
+  contacts: Contact[];
+  /** Oportunidades, ídem. */
   opportunities: Opportunity[];
   meta: MetaAdsData;
   index: MetaIndex;
   range: DayRange;
-  pautaContacts: HasKey;
+  /** Del historial completo (buildAttributionContext). */
+  ctx: AttributionContext;
 }
 
 export interface CostSummary {
@@ -150,11 +285,15 @@ export interface CostSummary {
   mixedCurrency: boolean;
   /** Σ leadsForm + leadsMsg de los días en la ventana. */
   leadsMeta: number;
-  /** Oportunidades creadas en la ventana (día local) con ad en el dataset. */
+  /** CONTACTOS creados en la ventana (día local) con ad en el dataset. */
   leadsCrm: number;
+  /** Oportunidades creadas en la ventana con ad en el dataset (propio o de su contacto). */
+  opportunities: number;
   /** De esas, las ganadas por isWonOpp (status o etapa). */
   won: number;
+  /** gasto ÷ leadsCrm (contactos). */
   cpl: number | null;
+  /** gasto ÷ won. */
   cpa: number | null;
   unknownAdLeads: number;
   noAdIdLeads: number;
@@ -172,8 +311,9 @@ function currencyOf(index: MetaIndex, adId: string, fallback: string | null): st
   return index.byAd.get(adId)?.account?.currency ?? fallback ?? "?";
 }
 
-// Cohorte de creación: el gasto de la ventana contra los leads que ESA ventana
-// creó. Sin denominador → null; nunca $0 ni ∞.
+// Cohorte de creación: el gasto de la ventana contra los contactos que ESA
+// ventana creó, y debajo sus oportunidades y ventas. Sin denominador → null;
+// nunca $0 ni ∞.
 export function buildCostSummary(p: CostInput): CostSummary {
   const fallback = defaultCurrency(p.meta);
   const spendByCurrency: Record<string, number> = {};
@@ -190,18 +330,23 @@ export function buildCostSummary(p: CostInput): CostSummary {
   const spend = mixedCurrency ? null : (spendByCurrency[currency ?? ""] ?? 0);
 
   let leadsCrm = 0;
-  let won = 0;
   let unknownAdLeads = 0;
   let noAdIdLeads = 0;
-  const ctx = { index: p.index, pautaContacts: p.pautaContacts };
+  for (const c of p.contacts) {
+    if (!inRange(localDay(c.createdAt), p.range)) continue;
+    const kind = classifyContact(c, p.ctx);
+    if (kind === "exact") leadsCrm += 1;
+    else if (kind === "unknownAd") unknownAdLeads += 1;
+    else if (kind === "noAdId") noAdIdLeads += 1;
+  }
+
+  let opportunities = 0;
+  let won = 0;
   for (const opp of p.opportunities) {
     if (!inRange(localDay(opp.createdAt), p.range)) continue;
-    const kind = classifyLead(opp, ctx);
-    if (kind === "exact") {
-      leadsCrm += 1;
-      if (isWonOpp(opp)) won += 1;
-    } else if (kind === "unknownAd") unknownAdLeads += 1;
-    else if (kind === "noAdId") noAdIdLeads += 1;
+    if (classifyLead(opp, p.ctx) !== "exact") continue;
+    opportunities += 1;
+    if (isWonOpp(opp)) won += 1;
   }
 
   return {
@@ -211,6 +356,7 @@ export function buildCostSummary(p: CostInput): CostSummary {
     mixedCurrency,
     leadsMeta,
     leadsCrm,
+    opportunities,
     won,
     cpl: spend === null ? null : ratio(spend, leadsCrm),
     cpa: spend === null ? null : ratio(spend, won),
@@ -250,7 +396,10 @@ export interface MetaReportRow {
   /** clicks / impressions; null sin impresiones. */
   ctr: number | null;
   leadsMeta: number;
+  /** Contactos de la ventana atribuidos a esta fila. */
   leadsCrm: number;
+  /** Oportunidades de la ventana atribuidas a esta fila. */
+  opportunities: number;
   won: number;
   cpl: number | null;
   cpa: number | null;
@@ -274,7 +423,7 @@ type Hit = ReturnType<MetaIndex["byAd"]["get"]>;
 interface Bucket extends MetaReportRow {
   _currencies: Set<string>;
   _oppIds: string[];
-  _contactIds: Set<string>;
+  _contactIds: string[];
 }
 
 export function buildMetaReport(p: MetaReportInput): MetaReportRow[] {
@@ -306,8 +455,8 @@ export function buildMetaReport(p: MetaReportInput): MetaReportRow[] {
       b = {
         key: k.key, label: k.label, accountId: k.accountId, currency: "?",
         spend: 0, impressions: 0, clicks: 0, cpm: null, ctr: null,
-        leadsMeta: 0, leadsCrm: 0, won: 0, cpl: null, cpa: null,
-        _currencies: new Set(), _oppIds: [], _contactIds: new Set(),
+        leadsMeta: 0, leadsCrm: 0, opportunities: 0, won: 0, cpl: null, cpa: null,
+        _currencies: new Set(), _oppIds: [], _contactIds: [],
       };
       buckets.set(k.key, b);
     }
@@ -328,24 +477,35 @@ export function buildMetaReport(p: MetaReportInput): MetaReportRow[] {
     b._currencies.add(currencyOf(p.index, row.adId, fallback));
   }
 
-  const ctx = { index: p.index, pautaContacts: p.pautaContacts };
-  for (const opp of p.opportunities) {
-    const day = localDay(opp.createdAt);
+  for (const c of p.contacts) {
+    const day = localDay(c.createdAt);
     if (!inRange(day, p.range)) continue;
-    if (classifyLead(opp, ctx) !== "exact") continue;
-    const adId = oppAdId(opp)!;
+    if (classifyContact(c, p.ctx) !== "exact") continue;
+    const adId = contactAdId(c, p.ctx)!;
     const hit = p.index.byAd.get(adId);
     if (!matches(hit)) continue;
     const k = keyFor(hit, day);
     if (!k) continue;
     const b = bucketFor(k);
     b.leadsCrm += 1;
+    b._currencies.add(currencyOf(p.index, adId, fallback));
+    if (p.includeIds && b._contactIds.length < ID_CAP) b._contactIds.push(c.id);
+  }
+
+  for (const opp of p.opportunities) {
+    const day = localDay(opp.createdAt);
+    if (!inRange(day, p.range)) continue;
+    if (classifyLead(opp, p.ctx) !== "exact") continue;
+    const adId = resolveOppAdId(opp, p.ctx)!;
+    const hit = p.index.byAd.get(adId);
+    if (!matches(hit)) continue;
+    const k = keyFor(hit, day);
+    if (!k) continue;
+    const b = bucketFor(k);
+    b.opportunities += 1;
     if (isWonOpp(opp)) b.won += 1;
     b._currencies.add(currencyOf(p.index, adId, fallback));
-    if (p.includeIds && b._oppIds.length < ID_CAP) {
-      b._oppIds.push(opp.id);
-      if (opp.contactId) b._contactIds.add(opp.contactId);
-    }
+    if (p.includeIds && b._oppIds.length < ID_CAP) b._oppIds.push(opp.id);
   }
 
   const out: MetaReportRow[] = [];
@@ -359,7 +519,7 @@ export function buildMetaReport(p: MetaReportInput): MetaReportRow[] {
     row.cpa = mixed ? null : ratio(row.spend, row.won);
     if (p.includeIds) {
       row.oppIds = _oppIds;
-      row.contactIds = Array.from(_contactIds);
+      row.contactIds = _contactIds;
     }
     out.push(row);
   }

@@ -2,7 +2,7 @@
 // knows the lay of the land without burning tokens listing thousands of rows.
 
 import type { ChatDataset } from "@/lib/ai-tools";
-import { buildMetaIndex, buildMetaReport, classifyLead, defaultCurrency } from "@/lib/meta-attribution";
+import { buildAttributionContext, buildMetaIndex, buildMetaReport, classifyContact, defaultCurrency } from "@/lib/meta-attribution";
 
 const MAX_SAMPLE = 10;
 const MAX_TAGS = MAX_SAMPLE * 2;
@@ -181,20 +181,20 @@ export function buildDatasetSummary(data: ChatDataset, locationId?: string): str
   } else {
     const m = data.metaAds;
     const idx = buildMetaIndex(m);
-    const pautaContacts = new Set(data.pautas.map((p) => p.contactId).filter((x): x is string => !!x));
+    const ctx = buildAttributionContext({ index: idx, contacts: data.contacts, opportunities: data.opportunities, pautas: data.pautas });
     const cur = defaultCurrency(m) ?? "?";
     lines.push(
       `Conectado: ${m.accounts.length} cuenta(s) (${m.accounts.map((a) => `${a.name} ${a.currency}`).join(", ")}). Ventana: ${m.window.since} → ${m.window.until}.`
     );
-    const byMonth = buildMetaReport({ opportunities: data.opportunities, meta: m, index: idx, range: null, pautaContacts, groupBy: "month" });
+    const byMonth = buildMetaReport({ contacts: data.contacts, opportunities: data.opportunities, meta: m, index: idx, range: null, ctx, groupBy: "month" });
     const totalSpend = byMonth.reduce((a, r) => a + r.spend, 0);
     lines.push(`Gasto total: ${fmtMoney(totalSpend, cur)}. Por mes: ${byMonth.map((r) => `${r.key} ${fmtMoney(r.spend, cur)}`).join(" · ")}`);
-    const top = buildMetaReport({ opportunities: data.opportunities, meta: m, index: idx, range: null, pautaContacts, groupBy: "campaign" }).slice(0, 8);
+    const top = buildMetaReport({ contacts: data.contacts, opportunities: data.opportunities, meta: m, index: idx, range: null, ctx, groupBy: "campaign" }).slice(0, 8);
     lines.push(`Top campañas por gasto: ${top.map((r) => `"${r.label}" ${fmtMoney(r.spend, r.currency)} (${r.leadsCrm} leads CRM)`).join(" · ")}`);
     const counts = { exact: 0, unknownAd: 0, noAdId: 0, notPauta: 0 };
-    for (const o of data.opportunities) counts[classifyLead(o, { index: idx, pautaContacts })]++;
+    for (const c of data.contacts) counts[classifyContact(c, ctx)]++;
     lines.push(
-      `Cruce con el CRM: ${counts.exact} oportunidades con anuncio en Meta (entran al costo), ${counts.unknownAd} con anuncio fuera de las cuentas asignadas, ${counts.noAdId} de pauta sin ad id. Usa meta_ads_report para cualquier costo.`
+      `Cruce con el CRM (el lead es el CONTACTO; su anuncio sale de: oportunidad → objeto Pauta → primera atribución → última): ${counts.exact} contactos con anuncio en Meta (entran al costo), ${counts.unknownAd} con anuncio fuera de las cuentas asignadas, ${counts.noAdId} de pauta sin ad id, ${counts.notPauta} orgánicos. Usa meta_ads_report para cualquier costo.`
     );
   }
 
@@ -222,7 +222,7 @@ Tienes acceso a todo el contexto de cada contacto a través de herramientas: sus
    - **"Oportunidades de los contactos creados en el periodo"** es un cruce entre entidades: usa \`relate({ from: { entity: "contacts", filters: { createdAfter, createdBefore } }, to: { entity: "opportunities" }, groupBy: "stage" })\`. NO uses \`aggregate(opportunities, ...)\` con \`createdAfter/createdBefore\` para esto — esos filtros miran la fecha de creación de la OPORTUNIDAD, no la del contacto. Usa \`aggregate(opportunities, filters:{createdAfter,createdBefore})\` cuando quieras las oportunidades CREADAS en el periodo (el default de arriba); si hay ambigüedad entre ambas lecturas, elige una, aclárala en una línea y mantén la misma ventana.
 
 9. **Costos SIEMPRE con \`meta_ads_report\`**: gasto, CPL, CPA, CPM, CTR y "cuánto gastamos" salen de esa herramienta. NUNCA dividas gasto entre leads a mano, ni sumes gasto de resultados de otras herramientas, ni estimes un costo desde el resumen del dataset.
-10. **"Leads Meta" ≠ "Leads CRM"**: \`leadsMeta\` son conversiones que Meta cobró; \`leadsCrm\` son oportunidades reales creadas en la ventana con ese anuncio. CPL y CPA usan \`leadsCrm\`. Di siempre cuál reportas, y si difieren mucho, señálalo — leads pagados que no llegaron al CRM son un hallazgo.
+10. **"Leads Meta" ≠ "Leads CRM"**: \`leadsMeta\` son conversiones que Meta cobró; \`leadsCrm\` son CONTACTOS creados en la ventana atribuidos a ese anuncio (por su oportunidad, su objeto Pauta o su primera/última atribución); \`opportunities\` y \`won\` son el embudo debajo. CPL usa \`leadsCrm\` (contactos) y CPA usa \`won\`. Di siempre cuál reportas, y si difieren mucho, señálalo — leads pagados que no llegaron al CRM son un hallazgo.
 11. **El gasto no se filtra por asesor, origen ni etapa**, solo por fecha y campaña. Si piden "el CPL de Ana" o "el costo de los perdidos", explica que el gasto es de la campaña, no del asesor ni del resultado, y ofrece el CPL por campaña o el conteo de leads de Ana por separado.
 12. **Moneda de la cuenta, sin convertir**: reporta en la \`currency\` que devuelva la herramienta. Si una fila trae \`currency: "?"\`, mezcla monedas: reporta por moneda y no consolides ni compares.
 13. **Sin Meta conectado, dilo**: si el resumen dice "No conectado" o la herramienta devuelve \`meta_not_connected\`, responde que este proyecto no tiene Meta Ads conectado y no inventes ni aproximes costos.
