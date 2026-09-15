@@ -23,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { DrillState } from "@/components/dashboard/chart-drill-drawer"
 import type { ResolvedDateRange } from "@/lib/date-range"
 import type { MetaAdsData, MetaAdsStatus, Opportunity, Pauta } from "@/lib/types"
+import type { ReportSection } from "@/lib/report"
 import {
   buildCostSummary,
   buildMetaIndex,
@@ -51,6 +52,73 @@ export function pct(n: number | null): string {
 
 function int(n: number): string {
   return n.toLocaleString("es-MX")
+}
+
+// ── PDF ─────────────────────────────────────────────────────────────────────
+// La misma sección que se ve en pantalla, en bloques del spec de pdfmake. Se
+// construye aquí y no en marketing-dashboard para que el panel y el PDF no
+// puedan divergir en qué es "Inversión en pauta".
+
+export function metaCoverKpis(inv: MetaInvestment): { label: string; value: string }[] {
+  const s = inv.summary
+  const currency = s.currency ?? "?"
+  const spend = s.mixedCurrency
+    ? Object.entries(s.spendByCurrency).map(([c, v]) => money(v, c)).join(" · ")
+    : money(s.spend, currency)
+  return [
+    { label: "Gasto en Meta", value: spend },
+    { label: "CPL", value: inv.costsSuppressed || s.mixedCurrency ? "—" : money(s.cpl, currency) },
+  ]
+}
+
+export function buildMetaReportSection(inv: MetaInvestment): ReportSection {
+  const s = inv.summary
+  const currency = s.currency ?? "?"
+  const suppressed = inv.costsSuppressed || s.mixedCurrency
+  const top = inv.rows.slice(0, 15)
+  // Misma regla que la tabla en pantalla: una sola moneda → al encabezado.
+  const tableCurrencies = new Set(top.map((r) => r.currency))
+  const tc = tableCurrencies.size === 1 ? Array.from(tableCurrencies)[0] : null
+  const cell = (n: number | null, rowCurrency: string) => money(n, tc ? "?" : rowCurrency)
+  const col = (c: string) => (tc && tc !== "?" && ["Gasto", "CPM", "CPL", "CPA"].includes(c) ? `${c} (${tc})` : c)
+  return {
+    id: "meta-investment",
+    title: "Inversión en pauta",
+    explanation:
+      "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con las oportunidades creadas en ese periodo. CPL y CPA usan los leads del CRM, no los que Meta reporta." +
+      (inv.costsSuppressed ? " Con filtros de atributo activos el gasto no se recorta, por eso CPL y CPA no se calculan." : ""),
+    blocks: [
+      {
+        t: "kpis",
+        items: [
+          ...metaCoverKpis(inv),
+          { label: "Leads CRM", value: s.leadsCrm.toLocaleString("es-MX") },
+          { label: "Leads Meta", value: s.leadsMeta.toLocaleString("es-MX") },
+          { label: "Ganadas", value: s.won.toLocaleString("es-MX") },
+          { label: "CPA", value: suppressed ? "—" : money(s.cpa, currency) },
+          { label: "Impresiones", value: inv.rows.reduce((a, r) => a + r.impressions, 0).toLocaleString("es-MX") },
+          { label: "Clics", value: inv.rows.reduce((a, r) => a + r.clicks, 0).toLocaleString("es-MX") },
+        ],
+      },
+      {
+        t: "table",
+        headers: ["Campaña", "Gasto", "Impr.", "Clics", "CPM", "CTR", "Leads Meta", "Leads CRM", "Ganadas", "CPL", "CPA"].map(col),
+        rows: top.map((r) => [
+          r.label,
+          cell(r.spend, r.currency),
+          r.impressions.toLocaleString("es-MX"),
+          r.clicks.toLocaleString("es-MX"),
+          cell(r.cpm, r.currency),
+          pct(r.ctr),
+          r.leadsMeta.toLocaleString("es-MX"),
+          r.leadsCrm.toLocaleString("es-MX"),
+          r.won.toLocaleString("es-MX"),
+          suppressed ? "—" : cell(r.cpl, r.currency),
+          suppressed ? "—" : cell(r.cpa, r.currency),
+        ]),
+      },
+    ],
+  }
 }
 
 // ── Cálculo ─────────────────────────────────────────────────────────────────

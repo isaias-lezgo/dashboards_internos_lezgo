@@ -38,7 +38,7 @@ import { MultiSelectFilter, type MultiSelectOption } from "./multi-select-filter
 import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
-import { MetaInvestmentSection, useMetaInvestment } from "./meta-investment-section"
+import { MetaInvestmentSection, useMetaInvestment, buildMetaReportSection, metaCoverKpis } from "./meta-investment-section"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
 import type { ResolvedDateRange } from "@/lib/date-range"
 import { OrigenDeLeadInfo } from "./origen-de-lead-criteria"
@@ -1187,6 +1187,9 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       v.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })
     const sections: ReportSection[] = []
 
+    // Inversión en pauta va primero: es la pregunta de dinero, y solo si hay Meta.
+    if (metaInv) sections.push(buildMetaReportSection(metaInv))
+
     if (leadsByCategory.length > 0) {
       const cats = SOURCE_CATEGORY_ORDER.filter((cat) =>
         leadsByCategory.some((r) => r.breakdown.some((b) => b.category === cat))
@@ -1425,6 +1428,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         { label: "Pautas", value: String(pautas.length) },
         { label: "Leads únicos", value: String(pautas.length - reingresoCount) },
         { label: "Reingresos", value: String(reingresoCount) },
+        ...(metaInv ? metaCoverKpis(metaInv) : []),
       ],
       sections,
     }
@@ -1438,7 +1442,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     locationName, originGroupBy, stageIncludeLost, stageGroupBy, pautaByStageConfig,
     apptGroupBy, apptStatusFilter, wonGroupBy,
     stageKeys, stageTopN, lostKeys, lostTopN, lostByReasonKeyCount,
-    apptKeys, apptTopN, wonKeys, wonTopN,
+    apptKeys, apptTopN, wonKeys, wonTopN, metaInv,
   ])
 
   return (
