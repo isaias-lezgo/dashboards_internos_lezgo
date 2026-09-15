@@ -486,6 +486,7 @@ export function DashboardApp() {
               tasks: data?.tasks ?? [],
               calls: data?.calls ?? [],
               customFieldDefs: data?.customFieldDefs ?? [],
+              metaAds: data?.metaAds ?? null,
             }}
             locationId={data?.locationId}
           />

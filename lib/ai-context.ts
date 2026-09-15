@@ -2,6 +2,7 @@
 // knows the lay of the land without burning tokens listing thousands of rows.
 
 import type { ChatDataset } from "@/lib/ai-tools";
+import { buildMetaIndex, buildMetaReport, classifyLead, defaultCurrency } from "@/lib/meta-attribution";
 
 const MAX_SAMPLE = 10;
 const MAX_TAGS = MAX_SAMPLE * 2;
@@ -41,6 +42,11 @@ function minMax(values: number[]): [number, number] | null {
 }
 
 const isoDay = (t: number): string => new Date(t).toISOString().slice(0, 10);
+
+function fmtMoney(n: number, currency: string): string {
+  const num = n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency === "?" ? `$${num}` : `$${num} ${currency}`;
+}
 
 const topNWithCounts = <T>(
   items: T[],
@@ -167,6 +173,31 @@ export function buildDatasetSummary(data: ChatDataset, locationId?: string): str
     lines.push(`\nRango de oportunidades: ${isoDay(oppRange[0])} → ${isoDay(oppRange[1])}`);
   }
 
+  // Meta Ads: que el modelo sepa si hay gasto, cuánto y qué tan bien cruza.
+  // Determinista y estable entre turnos: el bloque entra al prompt cacheado.
+  lines.push("\n=== META ADS ===");
+  if (!data.metaAds) {
+    lines.push("No conectado en este proyecto. No hay datos de gasto: dilo, no estimes costos.");
+  } else {
+    const m = data.metaAds;
+    const idx = buildMetaIndex(m);
+    const pautaContacts = new Set(data.pautas.map((p) => p.contactId).filter((x): x is string => !!x));
+    const cur = defaultCurrency(m) ?? "?";
+    lines.push(
+      `Conectado: ${m.accounts.length} cuenta(s) (${m.accounts.map((a) => `${a.name} ${a.currency}`).join(", ")}). Ventana: ${m.window.since} → ${m.window.until}.`
+    );
+    const byMonth = buildMetaReport({ opportunities: data.opportunities, meta: m, index: idx, range: null, pautaContacts, groupBy: "month" });
+    const totalSpend = byMonth.reduce((a, r) => a + r.spend, 0);
+    lines.push(`Gasto total: ${fmtMoney(totalSpend, cur)}. Por mes: ${byMonth.map((r) => `${r.key} ${fmtMoney(r.spend, cur)}`).join(" · ")}`);
+    const top = buildMetaReport({ opportunities: data.opportunities, meta: m, index: idx, range: null, pautaContacts, groupBy: "campaign" }).slice(0, 8);
+    lines.push(`Top campañas por gasto: ${top.map((r) => `"${r.label}" ${fmtMoney(r.spend, r.currency)} (${r.leadsCrm} leads CRM)`).join(" · ")}`);
+    const counts = { exact: 0, unknownAd: 0, noAdId: 0, notPauta: 0 };
+    for (const o of data.opportunities) counts[classifyLead(o, { index: idx, pautaContacts })]++;
+    lines.push(
+      `Cruce con el CRM: ${counts.exact} oportunidades con anuncio en Meta (entran al costo), ${counts.unknownAd} con anuncio fuera de las cuentas asignadas, ${counts.noAdId} de pauta sin ad id. Usa meta_ads_report para cualquier costo.`
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -189,6 +220,12 @@ Tienes acceso a todo el contexto de cada contacto a través de herramientas: sus
    - **PASO OBLIGATORIO — fija la ventana UNA vez y reúsala en cada entidad**: antes de tocar cualquier herramienta, convierte el periodo a fechas ISO concretas (\`createdAfter\` + \`createdBefore\`) UNA sola vez y aplica ESAS MISMAS fechas en CADA llamada de datos: contactos, **oportunidades**, pautas, citas y tareas. El error más común y más grave es filtrar los contactos por la semana pero pedir las oportunidades (o cualquier otra entidad) SIN filtro de fecha, con lo que salen "de todos los tiempos". Eso es un BUG, no una opción. Cada \`aggregate\`/\`relate\`/\`search_*\` de un reporte de periodo DEBE llevar el filtro de fecha; si una llamada no lo lleva, está mal — corrígela antes de responder.
    - **Base de fecha de las oportunidades dentro de un reporte de periodo**: por defecto usa la fecha de creación de la OPORTUNIDAD → \`aggregate(opportunities, filters:{createdAfter, createdBefore}, groupBy:"stage")\`, con las MISMAS fechas que los contactos, y dilo en una línea ("oportunidades creadas en el periodo"). Dentro de un reporte de periodo NO te detengas a preguntar con \`ask_user\` la base de fecha (la regla 4 de \`ask_user\` NO aplica aquí): elige este valor por defecto y acláralo. Solo pregunta si el usuario pide algo que dependa de otra base (p. ej. "ventas CERRADAS en la semana" → usa \`closedAfter/closedBefore\`).
    - **"Oportunidades de los contactos creados en el periodo"** es un cruce entre entidades: usa \`relate({ from: { entity: "contacts", filters: { createdAfter, createdBefore } }, to: { entity: "opportunities" }, groupBy: "stage" })\`. NO uses \`aggregate(opportunities, ...)\` con \`createdAfter/createdBefore\` para esto — esos filtros miran la fecha de creación de la OPORTUNIDAD, no la del contacto. Usa \`aggregate(opportunities, filters:{createdAfter,createdBefore})\` cuando quieras las oportunidades CREADAS en el periodo (el default de arriba); si hay ambigüedad entre ambas lecturas, elige una, aclárala en una línea y mantén la misma ventana.
+
+9. **Costos SIEMPRE con \`meta_ads_report\`**: gasto, CPL, CPA, CPM, CTR y "cuánto gastamos" salen de esa herramienta. NUNCA dividas gasto entre leads a mano, ni sumes gasto de resultados de otras herramientas, ni estimes un costo desde el resumen del dataset.
+10. **"Leads Meta" ≠ "Leads CRM"**: \`leadsMeta\` son conversiones que Meta cobró; \`leadsCrm\` son oportunidades reales creadas en la ventana con ese anuncio. CPL y CPA usan \`leadsCrm\`. Di siempre cuál reportas, y si difieren mucho, señálalo — leads pagados que no llegaron al CRM son un hallazgo.
+11. **El gasto no se filtra por asesor, origen ni etapa**, solo por fecha y campaña. Si piden "el CPL de Ana" o "el costo de los perdidos", explica que el gasto es de la campaña, no del asesor ni del resultado, y ofrece el CPL por campaña o el conteo de leads de Ana por separado.
+12. **Moneda de la cuenta, sin convertir**: reporta en la \`currency\` que devuelva la herramienta. Si una fila trae \`currency: "?"\`, mezcla monedas: reporta por moneda y no consolides ni compares.
+13. **Sin Meta conectado, dilo**: si el resumen dice "No conectado" o la herramienta devuelve \`meta_not_connected\`, responde que este proyecto no tiene Meta Ads conectado y no inventes ni aproximes costos.
 
 # Cuándo preguntar (ask_user)
 

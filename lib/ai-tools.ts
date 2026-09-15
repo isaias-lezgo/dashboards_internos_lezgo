@@ -11,9 +11,11 @@ import type {
   Task,
   Call,
   CustomFieldDef,
+  MetaAdsData,
 } from "@/lib/types";
 import { getChatIndex, type ChatIndex } from "@/lib/ai-index";
 import { isDePauta, resolveCampaignName } from "@/lib/pauta";
+import { buildMetaReport, defaultCurrency, type MetaGroupBy } from "@/lib/meta-attribution";
 import { buildCsv } from "@/lib/csv";
 
 export interface ChatDataset {
@@ -25,6 +27,8 @@ export interface ChatDataset {
   tasks: Task[];
   calls: Call[];
   customFieldDefs: CustomFieldDef[];
+  /** Dataset de Meta Ads (entrega ①). null/undefined = no conectado en este proyecto. */
+  metaAds?: MetaAdsData | null;
 }
 
 // ─── Chart spec (render_chart tool) ─────────────────────────────────────────────
@@ -340,6 +344,27 @@ export const TOOL_DEFINITIONS = [
         limit: { type: "number", description: "Max groups to return (default 50)." },
       },
       required: ["entity", "groupBy", "metric"],
+    },
+  },
+  {
+    name: "meta_ads_report",
+    description:
+      "Gasto de Meta Ads cruzado con el CRM por id de anuncio. ÚSALA para cualquier pregunta de costo: gasto, CPL, CPA, CPM, CTR, 'cuánto gastamos', 'qué campaña rinde mejor'. NUNCA calcules costos dividiendo a mano ni sumando gasto de otras herramientas. Devuelve { currency, window, rows: [{ key, label, currency, spend, impressions, clicks, cpm, ctr, leadsMeta, leadsCrm, won, cpl, cpa, contactIds? }] }. leadsMeta = conversiones que Meta cobró; leadsCrm = oportunidades reales creadas en la ventana con ese anuncio; CPL y CPA usan leadsCrm — di cuál reportas. Una fila con currency '?' mezcla monedas: reporta por moneda, no consolides. El gasto solo se filtra por fecha y campaña, nunca por asesor/origen/etapa. Con includeContactIds: true cada fila trae contactIds para render_chart en UNA llamada.",
+    input_schema: {
+      type: "object",
+      properties: {
+        groupBy: {
+          type: "string",
+          enum: ["none", "campaign", "adset", "ad", "month"],
+          description: "'none' = un total; 'campaign' es lo habitual; 'month' para tendencias (cronológico).",
+        },
+        since: { type: "string", description: "YYYY-MM-DD (día local CDMX), inclusive. Omite ambos para todo el historial." },
+        until: { type: "string", description: "YYYY-MM-DD (día local CDMX), inclusive." },
+        campaign: { type: "string", description: "Acota a las campañas cuyo nombre contenga este texto (sin acentos ni mayúsculas)." },
+        includeContactIds: { type: "boolean", description: "Adjunta contactIds (distintos, tope 50) por fila para gráficas drillables." },
+        limit: { type: "number", description: "Máximo de filas (default 50)." },
+      },
+      required: ["groupBy"],
     },
   },
   {
@@ -1080,6 +1105,8 @@ export function executeTool(
       return listAppointments(input, data, getChatIndex(data));
     case "aggregate":
       return aggregate(input, data);
+    case "meta_ads_report":
+      return metaAdsReport(input, data, getChatIndex(data));
     case "relate":
       return relate(input, data, getChatIndex(data));
     case "show_in_panel": {
@@ -1518,6 +1545,42 @@ function getOpportunity(input: ToolInput, data: ChatDataset) {
 }
 
 // ─── pautas ───────────────────────────────────────────────────────────────────
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function metaAdsReport(input: ToolInput, data: ChatDataset, index: ChatIndex) {
+  if (!data.metaAds || !index.metaIndex) {
+    return { error: "meta_not_connected", message: "Meta Ads no está conectado en este proyecto: no hay datos de gasto." };
+  }
+  const groupBy = input.groupBy as MetaGroupBy;
+  if (!["none", "campaign", "adset", "ad", "month"].includes(groupBy)) {
+    return { error: "invalid_groupBy" };
+  }
+  const since = typeof input.since === "string" && DAY_RE.test(input.since) ? input.since : null;
+  const until = typeof input.until === "string" && DAY_RE.test(input.until) ? input.until : null;
+  const range = since || until ? { since: since ?? "0000-01-01", until: until ?? "9999-12-31" } : null;
+  const limit = clampLimit(input.limit);
+  const rows = buildMetaReport({
+    opportunities: data.opportunities,
+    meta: data.metaAds,
+    index: index.metaIndex,
+    range,
+    pautaContacts: index.pautasByContact,
+    groupBy,
+    campaign: typeof input.campaign === "string" ? input.campaign : undefined,
+    includeIds: input.includeContactIds === true,
+  });
+  return {
+    currency: defaultCurrency(data.metaAds) ?? "?",
+    window: range ?? data.metaAds.window,
+    accounts: data.metaAds.accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency })),
+    total: rows.length,
+    rows: rows.slice(0, limit).map((r) => {
+      const { oppIds: _omit, ...rest } = r;
+      return rest;
+    }),
+  };
+}
 
 function searchPautas(input: ToolInput, data: ChatDataset, index: ChatIndex) {
   const q = lc(input.query);
