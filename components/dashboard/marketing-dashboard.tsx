@@ -38,7 +38,7 @@ import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
 import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
-import { PaidPerformanceTable, usePaidPerformance } from "./paid-performance-table"
+import { PaidPerformanceTable, usePaidPerformance, buildPaidReportSection } from "./paid-performance-table"
 import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
 import { EMPTY_META, urlPlatform, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
@@ -1008,6 +1008,19 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       v.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })
     const sections: ReportSection[] = []
 
+    // Inversión y rendimiento de pauta va primero: es la pregunta de dinero.
+    if (paidGroups.length > 0) {
+      sections.push(
+        buildPaidReportSection({
+          groups: paidGroups,
+          groupBy: paidGroupBy,
+          hasMeta: !!metaInv,
+          costsSuppressed: filtersLabel !== undefined,
+          includeLost: paidIncludeLost,
+        })
+      )
+    }
+
     if (leadsByCategory.length > 0) {
       const cats = SOURCE_CATEGORY_ORDER.filter((cat) =>
         leadsByCategory.some((r) => r.breakdown.some((b) => b.category === cat))
@@ -1189,7 +1202,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     opportunities.length, pautaOppCount, pautas.length, reingresoCount, periodLabel, filtersLabel,
     locationName, originGroupBy, wonGroupBy,
     lostKeys, lostTopN, lostByReasonKeyCount,
-    wonKeys, wonTopN, metaInv,
+    wonKeys, wonTopN, metaInv, paidGroups, paidGroupBy, paidIncludeLost,
   ])
 
   return (

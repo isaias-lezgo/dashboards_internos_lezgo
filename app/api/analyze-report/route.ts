@@ -91,7 +91,7 @@ export async function POST(req: Request) {
   try {
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      // Every panel chart is now a section (~13 for marketing, ~8 for ventas),
+      // Every panel chart is now a section (~9 for marketing, ~8 for ventas),
       // each needing 2–3 sentences plus the executive summary.
       max_tokens: 8000,
       system: [

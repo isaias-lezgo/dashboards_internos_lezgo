@@ -41,6 +41,7 @@ import {
   type StageCount,
 } from "@/lib/paid-performance"
 import { isWonOpp } from "@/lib/opportunity-status"
+import type { ReportSection } from "@/lib/report"
 import { MetaInvestmentTiles, metaScopeNote, money, pct, type MetaInvestment } from "./meta-investment-section"
 
 // ── Columnas ────────────────────────────────────────────────────────────────
@@ -542,4 +543,80 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
       )}
     </DashboardCard>
   )
+}
+
+// ── PDF ─────────────────────────────────────────────────────────────────────
+// La misma tabla, en bloques de pdfmake: top 15 grupos con las columnas de
+// pantalla (sin Impr./Clics/CPM, que en papel solo ensanchan), y una tabla
+// anexa etapa × campaña — una tabla se lee en papel; una apilada de 30
+// colores no.
+
+export function buildPaidReportSection(p: {
+  groups: PaidGroup[]
+  groupBy: PaidGroupBy
+  hasMeta: boolean
+  costsSuppressed: boolean
+  includeLost: boolean
+}): ReportSection {
+  const showMeta = p.hasMeta && p.groupBy === "campaign"
+  const sorted = [...p.groups].sort((a, b) =>
+    showMeta ? (b.spend ?? 0) - (a.spend ?? 0) || b.opportunities - a.opportunities : b.opportunities - a.opportunities || (b.spend ?? 0) - (a.spend ?? 0)
+  )
+  const top = sorted.slice(0, 15)
+  const rest = sorted.slice(15)
+  const currencies = new Set(top.map((g) => g.currency).filter((c): c is string => !!c && c !== "?"))
+  const tc = currencies.size === 1 ? Array.from(currencies)[0] : null
+  const cell = (n: number | null, c: string | null) => (n === null ? "—" : money(n, tc ? "?" : (c ?? "?")))
+  const suppressed = p.costsSuppressed
+  const noun = p.groupBy === "campaign" ? "Campaña" : "Origen"
+  const withCurrency = (label: string) => (tc ? `${label} (${tc})` : label)
+
+  const headers = [
+    noun,
+    ...(showMeta ? [withCurrency("Gasto"), "CTR", "Leads Meta"] : []),
+    "Leads CRM", "Opps", "Ganadas",
+    ...(showMeta ? [withCurrency("CPL"), withCurrency("CPA")] : []),
+    "Citas", "Efectivas",
+  ]
+  const rowOf = (g: PaidRow, isOtras = false): string[] => [
+    g.label,
+    ...(showMeta ? [cell(g.spend, g.currency), isOtras ? "—" : pct(g.ctr), int(g.leadsMeta)] : []),
+    int(g.leadsCrm), int(g.opportunities), int(g.won),
+    ...(showMeta ? [suppressed || isOtras ? "—" : cell(g.cpl, g.currency), suppressed || isOtras ? "—" : cell(g.cpa, g.currency)] : []),
+    int(g.appointments), int(g.showed),
+  ]
+  const rows = top.map((g) => rowOf(g))
+  if (rest.length > 0) rows.push(rowOf(sumRows(rest, OTRAS_KEY, `Otras (${rest.length})`), true))
+
+  // Etapa × campaña: top 6 por opps + Otras.
+  const byOpps = [...p.groups].sort((a, b) => b.opportunities - a.opportunities)
+  const stageCols = byOpps.slice(0, 6)
+  const stageRest = byOpps.slice(6)
+  const stageColRows: PaidRow[] = stageRest.length > 0 ? [...stageCols, sumRows(stageRest, OTRAS_KEY, `Otras (${stageRest.length})`)] : stageCols
+  const stageNames = Array.from(new Map(p.groups.flatMap((g) => g.stages).map((s) => [s.stage, s])).values())
+    .sort((x, y) => Number(x.lost) - Number(y.lost) || x.order - y.order || x.stage.localeCompare(y.stage))
+    .map((s) => s.stage)
+  const stageTable = {
+    t: "table" as const,
+    headers: ["Etapa", ...stageColRows.map((g) => g.label)],
+    rows: stageNames.map((name) => [name, ...stageColRows.map((g) => int(g.stages.find((s) => s.stage === name)?.count ?? 0))]),
+  }
+
+  return {
+    id: "pauta-rendimiento",
+    title: "Inversión y rendimiento de pauta",
+    explanation:
+      (showMeta
+        ? "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con los contactos y oportunidades de pauta del CRM creados en él (oportunidad → objeto Pauta → primera atribución → última). Leads CRM son contactos; CPL usa esos leads, no los que Meta reporta; CPA usa las oportunidades ganadas. "
+        : "Pautas del CRM en el periodo (Meta, TikTok, Google), agrupadas por su anuncio; sin conexión a Meta no hay gasto. ") +
+      "Citas cuenta contactos con al menos una cita en el periodo; Efectivas, con una cita realizada. La tabla de etapas muestra en qué punto del pipeline están las oportunidades de cada " +
+      (p.groupBy === "campaign" ? "campaña" : "origen") +
+      (p.includeLost ? ", perdidas incluidas." : "; las perdidas no se cuentan.") +
+      (suppressed && showMeta ? " Con filtros de atributo activos el gasto no se recorta, por eso CPL y CPA no se calculan." : ""),
+    blocks: [
+      { t: "table", headers, rows },
+      { t: "subheading", text: `Oportunidades de pauta por etapa${p.includeLost ? "" : " (sin perdidas)"}` },
+      stageTable,
+    ],
+  }
 }
