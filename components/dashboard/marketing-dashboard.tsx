@@ -38,7 +38,10 @@ import { MultiSelectFilter, type MultiSelectOption } from "./multi-select-filter
 import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
-import { MetaInvestmentSection, useMetaInvestment, buildMetaReportSection, metaCoverKpis } from "./meta-investment-section"
+import { MetaInvestmentTiles, useMetaInvestment, metaCoverKpis, metaScopeNote } from "./meta-investment-section"
+import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
+import { EMPTY_META } from "@/lib/paid-performance"
+import { Coins } from "lucide-react"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
 import type { ResolvedDateRange } from "@/lib/date-range"
 import { OrigenDeLeadInfo } from "./origen-de-lead-criteria"
@@ -574,14 +577,26 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   const rankingPautas = allPautas ?? pautas
   const [drill, setDrill] = useState<DrillState>(DRILL_CLOSED)
 
-  // Inversión en pauta (Meta): un solo cálculo compartido por la sección y el PDF.
+  // El contexto de atribución se construye UNA vez por payload y lo comparten los
+  // tiles de Meta y la tabla de rendimiento: dos contextos podrían resolver un ad
+  // id distinto. Sin Meta el índice está vacío y la cadena devuelve el id crudo.
+  const attributionCtx = useMemo(
+    () =>
+      buildAttributionContext({
+        index: buildMetaIndex(metaAds ?? EMPTY_META),
+        contacts: lookupContacts,
+        opportunities: lookupOpportunities,
+        pautas: rankingPautas,
+      }),
+    [metaAds, lookupContacts, lookupOpportunities, rankingPautas]
+  )
+
+  // Inversión en pauta (Meta): tiles y KPIs de portada del PDF.
   const metaInv = useMetaInvestment({
     metaAds,
     contacts,
     opportunities,
-    allContacts: allContacts ?? contacts,
-    allOpportunities: allOpportunities ?? opportunities,
-    allPautas: rankingPautas,
+    ctx: attributionCtx,
     dateRange,
     attributeFiltersActive: filtersLabel !== undefined,
   })
@@ -1159,9 +1174,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       v.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })
     const sections: ReportSection[] = []
 
-    // Inversión en pauta va primero: es la pregunta de dinero, y solo si hay Meta.
-    if (metaInv) sections.push(buildMetaReportSection(metaInv))
-
     if (leadsByCategory.length > 0) {
       const cats = SOURCE_CATEGORY_ORDER.filter((cat) =>
         leadsByCategory.some((r) => r.breakdown.some((b) => b.category === cat))
@@ -1436,7 +1448,12 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         onPautasClick={openAllPautasDrill}
       />
 
-      {metaInv && <MetaInvestmentSection inv={metaInv} status={metaAdsStatus} onDrill={setDrill} />}
+      {metaInv && (
+        <DashboardCard>
+          <ChartCardHeader title="Inversión en pauta" icon={Coins} actions={<ScopePill label="cohorte por fecha" tooltip={metaScopeNote(metaInv, metaAdsStatus)} />} />
+          <MetaInvestmentTiles inv={metaInv} onDrill={setDrill} />
+        </DashboardCard>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
      
