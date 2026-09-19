@@ -76,6 +76,11 @@ proyectos la tabla ni se dibuja.
     irreconciliables a las cuatro gráficas de hoy).
 11. **El asistente no cambia.** `meta_ads_report` sigue sobre `buildMetaReport`.
     Exponerle este motor es una entrega aparte.
+12. **En modo Origen no hay columnas de inversión.** El gasto de Meta vive por
+    anuncio, y un anuncio produce a la vez oportunidades de Instagram, Facebook y
+    WhatsApp (`platformLabel` es por oportunidad): repartir su gasto entre orígenes
+    sería inventar un número. En Origen se ven leads, opps, ganadas, citas y etapas;
+    el `ScopePill` dice por qué no hay gasto.
 
 ## El motor — `lib/paid-performance.ts` (puro, navegador)
 
@@ -156,6 +161,8 @@ export function buildPaidPerformance(p: PaidPerformanceInput): PaidGroup[]
   `showed` por `status === "showed"`. Una cita cuenta para la fila de su contacto.
 - **Orden**: el motor no ordena; devuelve grupos e hijos en orden de inserción y la
   UI ordena por la columna activa. El "Top N" y la fila "Otras" también son de la UI.
+- **En `groupBy: "platform"`** el motor no llama a `buildMetaReport`: inversión
+  `null` en todas las filas, `crmOnly` según haya cruce (para la marca) — decisión 12.
 - **Sin Meta** (`meta: null`): todos los campos de inversión son `null`, `crmOnly`
   es `true` en todo, y las filas son las que da el CRM. Es el mismo código.
 
