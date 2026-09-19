@@ -38,6 +38,8 @@ pnpm verify:meta-connection-store # lib/meta-connection-store.ts — fila única
                          #   usa la base si hay DATABASE_URL, con producto sintético (no toca 'ads')
 pnpm verify:meta         # lib/meta-normalize.ts — actions, chunks por mes, ventana de historia
 pnpm verify:meta-attribution # lib/meta-attribution.ts — llave por ad id, cohorte por día local, costo por campaña
+pnpm verify:paid-performance # lib/paid-performance.ts — el gasto por campaña es idéntico al de
+                         #   buildMetaReport; lo que no cruza con Meta sobrevive; etapas suman opps
 pnpm verify:pmi          # lib/pmi-stages.ts + lib/pmi.ts — hitos por NOMBRE de etapa, semanas del mes,
                          #   semáforo, conversiones nulas, mes y año
 pnpm verify:pmi-ledger   # lib/pmi-ledger.ts — la bitácora nunca retira un hito; primera vez = estimado;
@@ -521,13 +523,15 @@ PDF, y el asistente — implementadas.
   conecta desde producción y el dev local lee la misma fila de Neon. Previews tampoco.
 - El riel de la pantalla de carga cuenta `meta` solo si el paso se emitió
   (`loading-screen.tsx`); si no, un proyecto sin Meta nunca llegaría al 100 %.
-- **Un solo motor para los tres consumidores**: `buildMetaReport(groupBy)` en
-  `lib/meta-attribution.ts` alimenta la tabla de "Inversión en pauta"
-  (`meta-investment-section.tsx`, `groupBy: "campaign"`), la sección del PDF
-  (`buildMetaReportSection`, mismo archivo) y la herramienta `meta_ads_report` del
-  asistente. Si un número difiere entre los tres, el bug está en el consumidor, no en
-  el cálculo. `useMetaInvestment` memoiza índice, resumen y filas por referencia de
-  `metaAds`; Marketing lo llama una vez y lo comparte con `buildReport()`.
+- **Dos motores, una llave.** `buildMetaReport(groupBy)` en `lib/meta-attribution.ts`
+  alimenta la herramienta `meta_ads_report` del asistente y los tiles de "Inversión"
+  (`useMetaInvestment`, `meta-investment-section.tsx`). `buildPaidPerformance` en
+  `lib/paid-performance.ts` alimenta la tabla "Inversión y rendimiento de pauta" y su
+  sección del PDF, y toma el gasto por anuncio de `buildMetaReport({ groupBy: "ad" })`,
+  así que el gasto de una campaña es idéntico en los tres (`verify:paid-performance`,
+  aserción 1; comprobado también contra el payload real de Lezgo Suite, 27 campañas).
+  Si un número difiere, el bug está en el consumidor. Ver "Inversión y rendimiento de
+  pauta" abajo.
 - **El gasto no se recorta por atributo.** Con Asesor/Status/Origen/Tipo de pauta
   activos, `gasto ÷ leads de un asesor` sería un CPL falso: la sección muestra Leads
   CRM y Ganadas recortados y **CPL/CPA en `—`** (`costsSuppressed`), y el `ScopePill`
@@ -552,6 +556,43 @@ PDF, y el asistente — implementadas.
   es otro proyecto (`dashboards-ghl`). `META_PUBLIC_ORIGIN` apuntando al host equivocado
   hace que Facebook regrese a un host sin la cookie de sesión y el middleware responda
   401 — y esa denegación **no aparece en los runtime logs de Vercel**.
+
+### Inversión y rendimiento de pauta (la tabla)
+
+Spec: `docs/superpowers/specs/2026-09-19-pauta-rendimiento-unificado-design.md`. Una
+tarjeta que reemplazó (2026-09-19) a la tabla de inversión y a cuatro gráficas: etapa
+apilada, ID de anuncio, URL y citas por pauta. Motor puro en `lib/paid-performance.ts`;
+tarjeta, editor de columnas, barra de etapas y sección del PDF en
+`components/dashboard/paid-performance-table.tsx`.
+
+- **Universo del CRM, Meta encima.** Filas = pautas del CRM (`classifyLead !== "notPauta"`:
+  Meta, TikTok, Google, con o sin cruce). Las columnas de inversión existen solo con
+  `metaAds` y cruce por ad id; lo demás sale en `—`. Existe en los seis proyectos, no
+  solo donde hay Meta.
+- **El átomo es el anuncio**, resuelto con la MISMA cadena que el CPL
+  (`resolveOppAdId` / `contactAdId`). Sin Meta la cadena corre con `EMPTY_META` y devuelve
+  el id crudo. No hay un segundo camino. **Los ad ids tienen ≥ 6 dígitos**
+  (`normalizeAdId`): un fixture con ids cortos cae en silencio a "sin ID".
+- **Filas expandibles campaña → anuncios.** Con Meta la campaña es la de Meta; sin cruce,
+  el `campaignHeadline` de la pauta del CRM (marca "sin Meta"). Los hijos de una campaña
+  de Meta son la UNIÓN de sus anuncios y los ad ids del CRM: un anuncio que gasta sin
+  traer leads aparece con opps en 0, o la suma no daría el gasto de la campaña. Una opp
+  sin ad id cae en "Sin ID de anuncio", no desaparece. Un grupo con un solo hijo no se
+  expande y muestra el ID/URL de ese hijo en su fila.
+- **En modo Origen no hay inversión**: un anuncio produce opps de Instagram, Facebook y
+  WhatsApp a la vez; repartir su gasto sería inventar.
+- **Citas = contactos con cita en la ventana** (dos citas del mismo contacto cuentan 1);
+  **Efectivas** = `showed`. Es el vocabulario del PMI.
+- **La barra de etapas** va en orden del pipeline con perdidas al final; el toggle
+  "Perdidas" las quita de la barra Y de Opps (y de `oppIds`). No lleva leyenda: el hover
+  decodifica. En el PDF va como tabla etapa × campaña (top 6 + Otras).
+- El editor de columnas guarda en `localStorage` (`paid-performance-cols`): conveniencia
+  por navegador, no estado del negocio. Sin Meta las columnas de Meta no se ofrecen.
+- El contexto de atribución se construye UNA vez en `marketing-dashboard.tsx`
+  (`attributionCtx`) y lo comparten tiles y tabla: dos contextos podrían resolver un ad
+  id distinto.
+- `marketing-dashboard.tsx` conserva `GroupByToggle` / `GroupKeyFilter` / `paidGroupByKey`
+  para "Perdidas por razón" y "Ganadas por pauta"; no son de esta tabla.
 
 ### PMI (pestaña Desempeño)
 
@@ -606,7 +647,7 @@ Both dashboards export a branded PDF via `components/dashboard/export-report-but
   **already-computed aggregates** — deterministic code, not the model.
 - `app/api/analyze-report/route.ts` then makes one Haiku pass that writes an executive
   summary plus one analysis per section. Sections are analyzed **by default**; `ai: false`
-  opts out. Token budget is sized to the section count (~13 marketing / ~8 ventas) — if you
+  opts out. Token budget is sized to the section count (~9 marketing / ~8 ventas) — if you
   add sections, check it still fits.
 - `lib/pdf/*` renders the spec with pdfmake: `build-pdf.ts` (doc definition — **LETTER
   landscape**, 712pt usable width), `charts.ts` (hand-drawn canvas charts), `blocks.ts`

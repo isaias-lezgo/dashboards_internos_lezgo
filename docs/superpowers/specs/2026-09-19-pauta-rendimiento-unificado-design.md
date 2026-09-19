@@ -1,7 +1,7 @@
 # Inversión y rendimiento de pauta — una tabla en lugar de cinco piezas
 
 Fecha: 2026-09-19
-Estado: diseño aprobado, pendiente de plan
+Estado: implementado 2026-09-19 (rama `feat/pauta-rendimiento`)
 
 ## El problema
 
