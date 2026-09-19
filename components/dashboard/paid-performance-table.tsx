@@ -609,7 +609,7 @@ export function buildPaidReportSection(p: {
     title: "Inversión y rendimiento de pauta",
     explanation:
       (showMeta
-        ? "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con los contactos y oportunidades de pauta del CRM creados en él (oportunidad → objeto Pauta → primera atribución → última). Leads CRM son contactos; CPL usa esos leads, no los que Meta reporta; CPA usa las oportunidades ganadas. "
+        ? "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con los contactos y oportunidades de pauta del CRM creados en él (el anuncio sale de la oportunidad, del objeto Pauta o de la atribución del contacto, en ese orden). Leads CRM son contactos; CPL usa esos leads, no los que Meta reporta; CPA usa las oportunidades ganadas. "
         : "Pautas del CRM en el periodo (Meta, TikTok, Google), agrupadas por su anuncio; sin conexión a Meta no hay gasto. ") +
       "Citas cuenta contactos con al menos una cita en el periodo; Efectivas, con una cita realizada. La tabla de etapas muestra en qué punto del pipeline están las oportunidades de cada " +
       (p.groupBy === "campaign" ? "campaña" : "origen") +
