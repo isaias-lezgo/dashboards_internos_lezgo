@@ -404,7 +404,7 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
   }
 
   const renderName = (row: PaidRow, { isChild, isOtras, expandable, isOpen }: RowOpts) => (
-    <TableCell className={`max-w-[26rem] ${isChild ? "pl-9" : "font-medium"} ${isOtras ? "text-muted-foreground" : ""}`}>
+    <TableCell className={`max-w-[28rem] ${isChild ? "pl-9" : "font-medium"} ${isOtras ? "text-muted-foreground" : ""}`}>
       <div className="flex items-center gap-1.5">
         {!isChild && !isOtras && (
           expandable
@@ -425,7 +425,9 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
         {!isChild && !isOtras && row.adId && (
           <span className="ml-1 inline-flex items-center font-mono text-[11px] text-muted-foreground">{row.adId}<CopyButton value={row.adId} /></span>
         )}
-        {row.url && (
+        {/* La liga es del anuncio: en un grupo con varios anuncios se ve al expandir,
+            no aquí, donde solo taparía el nombre de la campaña. */}
+        {row.url && (isChild || !expandable) && (
           <span className="ml-2 inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
             {row.url.platform === "facebook" ? <Facebook className="h-3 w-3 text-[#1877F2]" /> : row.url.platform === "instagram" ? <Instagram className="h-3 w-3 text-[#E1306C]" /> : <Link2 className="h-3 w-3" />}
             <span className="font-mono">{shortUrl(row.url.href)}</span>
@@ -508,7 +510,7 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[16rem]">{groupBy === "campaign" ? "Campaña / anuncio" : "Origen / anuncio"}</TableHead>
+                  <TableHead className="min-w-[20rem]">{groupBy === "campaign" ? "Campaña / anuncio" : "Origen / anuncio"}</TableHead>
                   {numericCols.map((c) => (
                     <TableHead key={c.id} className="whitespace-nowrap text-right">
                       <button type="button" onClick={() => toggleSort(c.id as SortKey)} className={`inline-flex items-center gap-1 hover:text-foreground ${effectiveSort.key === c.id ? "text-foreground" : ""}`}>

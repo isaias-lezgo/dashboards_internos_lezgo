@@ -237,6 +237,13 @@ async function main() {
     assert.ok(groups.length > 0);
     for (const g of groups) assert.equal(g.spend, null);
     assert.equal(groups.reduce((s, g) => s + g.opportunities, 0), 7);
+    // Un contacto SIN oportunidad se ubica por sus propias señales (source, liga,
+    // "Origen de Lead"), no en "Otro": en Lezgo Suite el 93 % de los leads nunca
+    // llega a oportunidad y "Otro" se comía 1,450.
+    const solo = contact({ id: "c-solo", adId: "120100", source: "instagram" });
+    const withSolo = build(true, { groupBy: "platform", contacts: [...contacts, solo] });
+    assert.ok(byLabel(withSolo, "Instagram").contactIds.includes("c-solo"));
+    assert.ok(!withSolo.some((g) => g.label === "Otro"));
   }
 
   console.log("verify:paid-performance ✓");

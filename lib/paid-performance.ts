@@ -115,6 +115,22 @@ export function urlPlatform(url: string): "facebook" | "instagram" | "other" {
   return "other";
 }
 
+// El origen de un contacto SIN oportunidad: platformLabel lee de la oportunidad
+// exactamente los campos que lib/sync.ts le copia del contacto (source, liga,
+// medio, "Origen de Lead"), así que se le da el contacto con esa forma. Sin
+// esto, en Lezgo Suite —donde el 93 % de los leads nunca llega a oportunidad—
+// "Otro" se comía 1,450 leads en modo Origen.
+function contactPlatformLabel(c: Contact): string {
+  const origen = c.customFieldsResolved?.["Origen de Lead"];
+  return platformLabel({
+    source: c.source,
+    attributionUrl: c.attributionUrl,
+    attributionMedium: c.attributionMedium,
+    originPlatform: Array.isArray(origen) ? origen[0] : origen,
+    customFieldsResolved: c.customFieldsResolved,
+  } as unknown as Opportunity);
+}
+
 // ── Cubos ───────────────────────────────────────────────────────────────────
 
 interface Bucket {
@@ -230,7 +246,7 @@ export function buildPaidPerformance(p: PaidPerformanceInput): PaidGroup[] {
       let gk: GroupKey;
       if (p.groupBy === "platform") {
         const anyOpp = (ctx.oppsByContact.get(c.id) ?? [])[0];
-        gk = platformGroup(anyOpp ? platformLabel(anyOpp) : "Otro", adId);
+        gk = platformGroup(anyOpp ? platformLabel(anyOpp) : contactPlatformLabel(c), adId);
       } else {
         gk = metaOrCrmGroup(adId, p.pautaNameByContact.get(c.id));
       }
