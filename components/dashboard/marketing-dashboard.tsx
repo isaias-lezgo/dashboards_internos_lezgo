@@ -20,10 +20,9 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart"
 import type { Opportunity, Contact, Pauta, Task, Call, Appointment, Pipeline } from "@/lib/types"
-import { Tag, FileText, Calendar, BarChart3, Layers, TrendingUp, TrendingDown, Facebook, Instagram, ListFilter } from "lucide-react"
+import { Tag, FileText, Calendar, BarChart3, TrendingUp, TrendingDown, ListFilter } from "lucide-react"
 import { PLATFORM_COLORS, PLATFORM_ORDER, platformLabel, originSignalText, hasGoogleAdsSignal, hasWebsiteSignal } from "@/lib/source-platform"
 import {
-  isPaidTraffic,
   isDePauta as isDePautaOpp,
   resolveCampaignName,
   buildPautaNameByContact,
@@ -41,7 +40,7 @@ import type { ReportInput, ReportSection } from "@/lib/report"
 import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
 import { PaidPerformanceTable, usePaidPerformance } from "./paid-performance-table"
 import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
-import { EMPTY_META, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
+import { EMPTY_META, urlPlatform, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
 import type { ResolvedDateRange } from "@/lib/date-range"
 import { OrigenDeLeadInfo } from "./origen-de-lead-criteria"
@@ -54,7 +53,6 @@ import {
   DashboardShell,
   DashboardCard,
   ChartCardHeader,
-  ScopePill,
   ChartCardContent,
   ChartEmpty,
   ChartHint,
@@ -73,25 +71,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-
-// Spanish labels for raw GHL appointment statuses.
-const APPT_STATUS_LABELS: Record<string, string> = {
-  showed: "Asistió",
-  confirmed: "Confirmada",
-  new: "Pendiente",
-  noshow: "No asistió",
-  cancelled: "Cancelada",
-  invalid: "Inválida",
-}
-
-const apptStatusLabel = (s: string) => APPT_STATUS_LABELS[s] ?? s
 
 interface MarketingDashboardProps {
   opportunities: Opportunity[]
@@ -245,27 +224,6 @@ function sourceCategory(opp: Opportunity): string {
   if (src === "" || med === "" || isCrmUi(src, med, attrMed)) return "CRM UI"
   if (src.includes("web") || src.includes("website") || src.includes("landing") || med === "organic" || med === "referral") return "Orgánico Web"
   return "Otro"
-}
-
-// Landing URLs in this location are the social links themselves:
-// instagram.com/p/… (Instagram) and fb.me/… (Facebook).
-function urlPlatform(url: string): "facebook" | "instagram" | null {
-  const u = url.toLowerCase()
-  if (u.includes("instagram.com")) return "instagram"
-  if (u.includes("fb.me") || u.includes("facebook.com") || u.includes("fb.com")) return "facebook"
-  return null
-}
-
-// Show a compact label for a social URL (the path slug) while keeping the
-// full URL available via title for the tooltip.
-function shortUrlLabel(raw: string): string {
-  try {
-    const u = new URL(raw)
-    const slug = u.pathname.replace(/\/$/, "").split("/").pop() || u.hostname
-    return slug.length > 22 ? slug.slice(0, 22) + "…" : slug
-  } catch {
-    return raw.length > 22 ? raw.slice(0, 22) + "…" : raw
-  }
 }
 
 function paidTrafficUrlLabel(url: string): string {
@@ -641,19 +599,13 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     meta: paidMetaInput,
   })
   const [hoveredAdType, setHoveredAdType] = useState<number | undefined>(undefined)
-  const { groupBy: apptGroupBy, setGroupBy: setApptGroupBy, selected: apptKeys, setSelected: setApptKeys } = useGroupKeyFilter("campaign")
   const { groupBy: wonGroupBy, setGroupBy: setWonGroupBy, selected: wonKeys, setSelected: setWonKeys } = useGroupKeyFilter("campaign")
-  const { groupBy: stageGroupBy, setGroupBy: setStageGroupBy, selected: stageKeys, setSelected: setStageKeys } = useGroupKeyFilter("campaign")
   const { groupBy: lostGroupBy, setGroupBy: setLostGroupBy, selected: lostKeys, setSelected: setLostKeys } = useGroupKeyFilter("campaign")
   const [originGroupBy, setOriginGroupBy] = useState<OriginGroupBy>("platform")
   const [onlyReingresos, setOnlyReingresos] = useState(false)
-  const [stageIncludeLost, setStageIncludeLost] = useState(true)
   const [pautaUniqueLeads, setPautaUniqueLeads] = useState(false)
-  const [stageTopN, setStageTopN] = useState(30)
   const [lostTopN, setLostTopN] = useState(Infinity)
-  const [apptTopN, setApptTopN] = useState(Infinity)
   const [wonTopN, setWonTopN] = useState(Infinity)
-  const [apptStatusFilter, setApptStatusFilter] = useState<string>("all")
 
   const openDrill = useCallback((title: string, items: Opportunity[], subtitle?: string) => {
     setDrill({ open: true, title, subtitle, opportunities: items })
@@ -686,21 +638,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     (p: Pauta) => (pautaReingresoMap.get(p.id) ?? "Primer ingreso") === "Primer ingreso",
     [pautaReingresoMap]
   )
-
-  // Derive ordered stage list using GHL pipeline order; fall back to alphabetical for unlisted stages
-  const stageOrder = useMemo(() => {
-    const actual = new Set(opportunities.map((o) => o.stage))
-    const ordered: string[] = []
-    // Walk pipelines in their GHL-defined stage order
-    for (const p of pipelines) {
-      for (const s of p.stages) {
-        if (actual.has(s) && !ordered.includes(s)) ordered.push(s)
-      }
-    }
-    // Append any stages present in data but not covered by pipeline definitions
-    for (const s of actual) if (!ordered.includes(s)) ordered.push(s)
-    return ordered
-  }, [opportunities, pipelines])
 
   // Leads por Plataforma — ALL opportunities, stacked by source category
   const leadsByCategory = useMemo(() => {
@@ -817,58 +754,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     const pautasByTipoTotal = rows.reduce((s, r) => s + sumRow(r), 0)
     return { pautasByTipoRows: rows, pautasByTipoPlatforms: platforms, pautasByTipoTotal }
   }, [pautas, contactById, pautaUniqueLeads, isUniqueLead])
-
-  // Attribution (URL or Ad ID) × Etapa del Pipeline (stacked bar: X = stage, Y = opp count, color = attribution key).
-  const { pautaByStageRows, pautaByStageKeys, pautaByStageKeyCount, pautaByStageOptions } = useMemo(() => {
-    const totals = new Map<string, number>()
-    const perStage = new Map<string, Map<string, number>>()
-    for (const stage of stageOrder) perStage.set(stage, new Map())
-
-    for (const opp of opportunities) {
-      if (!isDePauta(opp)) continue
-      if (!stageIncludeLost && opp.status === "lost") continue
-      const rawKey = paidGroupByKey(opp, stageGroupBy, pautaNameByContact)
-      if (!rawKey) continue
-      const stageMap = perStage.get(opp.stage)
-      if (!stageMap) continue
-      stageMap.set(rawKey, (stageMap.get(rawKey) ?? 0) + 1)
-      totals.set(rawKey, (totals.get(rawKey) ?? 0) + 1)
-    }
-
-    const allEntries = Array.from(totals.entries()).sort((a, b) => b[1] - a[1])
-    const allKeys = allEntries.map(([name]) => name)
-    const pautaByStageKeyCount = allKeys.length
-    const keys = visibleGroupKeys(allKeys, stageKeys, stageTopN)
-
-    const rows = stageOrder
-      .map((stage) => {
-        const row: Record<string, string | number> = { stage }
-        const stageMap = perStage.get(stage)!
-        for (const k of keys) row[k] = stageMap.get(k) ?? 0
-        return row
-      })
-      .filter((row) => keys.some((k) => (row[k] as number) > 0))
-
-    return {
-      pautaByStageRows: rows,
-      pautaByStageKeys: keys,
-      pautaByStageKeyCount,
-      pautaByStageOptions: groupKeyOptions(allEntries, stageGroupBy),
-    }
-  }, [opportunities, stageOrder, stageGroupBy, stageTopN, stageKeys, stageIncludeLost, isDePauta, pautaNameByContact])
-
-  const stageCampaignCut = campaignPrefixCut(pautaByStageKeys, stageGroupBy)
-  const pautaByStageConfig = Object.fromEntries(
-    pautaByStageKeys.map((k, i) => [
-      k,
-      { label: paidGroupByLabel(k, stageGroupBy, stageCampaignCut), color: stageGroupBy === "platform" ? (PLATFORM_COLORS[k] ?? CHART_PALETTE[i % CHART_PALETTE.length]) : CHART_PALETTE[i % CHART_PALETTE.length] },
-    ])
-  )
-
-  const pautaByStageTotal = pautaByStageRows.reduce(
-    (s, r) => s + pautaByStageKeys.reduce((a, k) => a + ((r[k] as number) || 0), 0),
-    0
-  )
 
   // Lost pauta opportunities: one bar per recorded lost reason (Y axis), each bar
   // stacked by the active dimension (campaign or origin, per the lostGroupBy
@@ -1060,76 +945,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       .sort((a, b) => b.wonCount - a.wonCount || b.total - a.total)
   }, [opportunities, originGroupBy])
 
-  // Panel 2 — Opportunities by Ad ID (table)
-  const leadsByAdId = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const o of opportunities) {
-      if (!o.adId) continue
-      counts.set(o.adId, (counts.get(o.adId) ?? 0) + 1)
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([adId, count]) => ({ adId, count }))
-  }, [opportunities])
-
-  // Panel 3 — Landing URLs split by platform (Facebook vs Instagram)
-  const leadsByPlatformUrl = useMemo(() => {
-    const fb = new Map<string, number>()
-    const ig = new Map<string, number>()
-    for (const o of opportunities) {
-      const url = o.attributionUrl
-      if (!url) continue
-      const platform = urlPlatform(url)
-      if (platform === "facebook") fb.set(url, (fb.get(url) ?? 0) + 1)
-      else if (platform === "instagram") ig.set(url, (ig.get(url) ?? 0) + 1)
-    }
-    const toRows = (m: Map<string, number>) =>
-      Array.from(m.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([url, count]) => ({ url, count }))
-    return { fb: toRows(fb), ig: toRows(ig) }
-  }, [opportunities])
-
-  const apptStatuses = useMemo(() => {
-    const s = new Set(appointments.map((a) => a.status).filter(Boolean))
-    return Array.from(s).sort()
-  }, [appointments])
-
-  // Panel 4a — Paid traffic leads with at least one appointment
-  // Leads with an appointment, counted per attribution key. The pipeline stage is a
-  // separate story (its own "por Etapa del Pipeline" chart), so it stays out of this
-  // bar and lives in the drill-down. One solid bar per key, sorted heaviest-first.
-  const { paidTrafficWithAppt, apptKeyCount, apptOptions } = useMemo(() => {
-    const filteredAppts = apptStatusFilter === "all"
-      ? appointments
-      : appointments.filter((a) => a.status === apptStatusFilter)
-    const apptContactIds = new Set(filteredAppts.map((a) => a.contactId))
-    const counts = new Map<string, number>()
-    for (const o of opportunities) {
-      if (!isDePauta(o)) continue
-      if (!apptContactIds.has(o.contactId)) continue
-      const rawKey = paidGroupByKey(o, apptGroupBy, pautaNameByContact)
-      if (!rawKey) continue
-      counts.set(rawKey, (counts.get(rawKey) ?? 0) + 1)
-    }
-    const allEntries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
-    const apptKeyCount = allEntries.length
-    const prefixCut = campaignPrefixCut(allEntries.map(([k]) => k), apptGroupBy)
-    const shown = new Set(visibleGroupKeys(allEntries.map(([k]) => k), apptKeys, apptTopN))
-    const sliced = allEntries.filter(([k]) => shown.has(k))
-    return {
-      paidTrafficWithAppt: sliced.map(([rawKey, count]) => ({
-        rawKey,
-        label: paidGroupByLabel(rawKey, apptGroupBy, prefixCut),
-        count,
-      })),
-      apptKeyCount,
-      apptOptions: groupKeyOptions(allEntries, apptGroupBy),
-    }
-  }, [opportunities, appointments, apptGroupBy, apptTopN, apptKeys, apptStatusFilter, isDePauta, pautaNameByContact])
-
-  const apptChartConfig = { count: { label: "Leads con cita", color: BRAND_AMBER } }
-
   // Panel 4b — Won deals from paid traffic, grouped by URL or Ad ID
   const { wonPaidTraffic, wonKeyCount, wonOptions } = useMemo(() => {
     const counts = new Map<string, { count: number; value: number }>()
@@ -1258,28 +1073,8 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     // miente por omisión, igual que el filtersLabel de la barra global. El
     // título lo lleva corto y la explicación lo dice en prosa, que es lo que lee
     // el prompt de analyze-report para no tomar el subconjunto por el total.
-    const stageKeyNote = keyNote(stageKeys, stageTopN, pautaByStageKeyCount, stageGroupBy)
     const lostKeyNote = keyNote(lostKeys, lostTopN, lostByReasonKeyCount, lostGroupBy)
-    const apptKeyNote = keyNote(apptKeys, apptTopN, apptKeyCount, apptGroupBy)
     const wonKeyNote = keyNote(wonKeys, wonTopN, wonKeyCount, wonGroupBy)
-
-    if (pautaByStageRows.length > 0) {
-      sections.push({
-        id: "pauta-etapa",
-        title: "Oportunidades de pauta por etapa del pipeline",
-        explanation:
-          `Dónde están hoy las oportunidades que vienen de pauta dentro del pipeline de ventas${stageIncludeLost ? "" : " (sin contar las perdidas)"}, con cada barra dividida por ${paidGroupByNoun(stageGroupBy)}. Muestra qué tan profundo avanza el tráfico pagado en el embudo y qué campañas sostienen cada etapa.${stageKeyNote ? ` La gráfica está recortada a ${stageKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
-        blocks: [{
-          t: "chart", type: "bar", stacked: true, valueLabel: "Oportunidades",
-          title: `Oportunidades de pauta por etapa${stageIncludeLost ? "" : " (sin perdidas)"} (total: ${pautaByStageTotal})${stageKeyNote ? ` · sólo ${stageKeyNote}` : ""}`,
-          categories: pautaByStageRows.map((r) => String(r.stage)),
-          series: pautaByStageKeys.map((k) => ({
-            name: pautaByStageConfig[k]?.label ?? k,
-            values: pautaByStageRows.map((r) => (r[k] as number) ?? 0),
-          })),
-        }],
-      })
-    }
 
     if (lostByReasonRows.length > 0) {
       sections.push({
@@ -1295,55 +1090,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
           series: [{
             name: "Oportunidades",
             values: lostByReasonRows.map((r) => r.total as number),
-          }],
-        }],
-      })
-    }
-
-    if (leadsByAdId.length > 0) {
-      sections.push({
-        id: "anuncios",
-        title: "Oportunidades por ID de anuncio",
-        explanation:
-          "Los anuncios específicos (por su ID) que más oportunidades generaron. Útil para identificar los creativos ganadores de las campañas.",
-        blocks: [{
-          t: "table",
-          headers: ["ID de anuncio", "Oportunidades"],
-          rows: leadsByAdId.slice(0, 10).map((r) => [r.adId, String(r.count)]),
-        }],
-      })
-    }
-
-    if (leadsByPlatformUrl.fb.length > 0 || leadsByPlatformUrl.ig.length > 0) {
-      sections.push({
-        id: "urls",
-        title: "Oportunidades por URL (Facebook / Instagram)",
-        explanation:
-          "Las URLs de atribución de Facebook e Instagram que más oportunidades trajeron — cada URL corresponde a una publicación o anuncio concreto.",
-        blocks: [{
-          t: "table",
-          headers: ["Plataforma", "URL", "Oportunidades"],
-          rows: [
-            ...leadsByPlatformUrl.fb.slice(0, 8).map((r) => ["Facebook", paidTrafficUrlLabel(r.url), String(r.count)]),
-            ...leadsByPlatformUrl.ig.slice(0, 8).map((r) => ["Instagram", paidTrafficUrlLabel(r.url), String(r.count)]),
-          ],
-        }],
-      })
-    }
-
-    if (paidTrafficWithAppt.length > 0) {
-      sections.push({
-        id: "citas-pauta",
-        title: "Citas por pauta",
-        explanation:
-          `Leads de tráfico pagado que llegaron a agendar al menos una cita, agrupados por ${paidGroupByNoun(apptGroupBy)} y ordenados de mayor a menor${apptStatusFilter === "all" ? "" : ` (citas con estatus "${apptStatusFilter}")`}. Mide qué campañas generan leads que avanzan a una reunión real.${apptKeyNote ? ` La gráfica está recortada a ${apptKeyNote}: los totales de esta sección son de ese subconjunto, no del proyecto completo.` : ""}`,
-        blocks: [{
-          t: "chart", type: "bar", orientation: "h", valueLabel: "Leads con cita",
-          title: `Citas por pauta (top ${Math.min(12, paidTrafficWithAppt.length)} de ${apptKeyCount})${apptKeyNote ? ` · sólo ${apptKeyNote}` : ""}`,
-          categories: paidTrafficWithAppt.slice(0, 12).map((r) => String(r.label)),
-          series: [{
-            name: "Leads con cita",
-            values: paidTrafficWithAppt.slice(0, 12).map((r) => r.count),
           }],
         }],
       })
@@ -1437,15 +1183,13 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     }
   }, [
     leadsByCategory, pautasByTipoRows, pautasByTipoPlatforms, pautasByTipoTotal,
-    pautasByMonthRows, pautasByMonthKeys, pautaByStageRows, pautaByStageKeys, pautaByStageTotal,
-    lostByReasonRows, lostByReasonTotal, originRows, leadsByAdId,
-    leadsByPlatformUrl, paidTrafficWithAppt, apptKeyCount,
+    pautasByMonthRows, pautasByMonthKeys,
+    lostByReasonRows, lostByReasonTotal, originRows,
     wonPaidTraffic, wonKeyCount, wonBySource, wonTotal,
     opportunities.length, pautaOppCount, pautas.length, reingresoCount, periodLabel, filtersLabel,
-    locationName, originGroupBy, stageIncludeLost, stageGroupBy, pautaByStageConfig,
-    apptGroupBy, apptStatusFilter, wonGroupBy,
-    stageKeys, stageTopN, lostKeys, lostTopN, lostByReasonKeyCount,
-    apptKeys, apptTopN, wonKeys, wonTopN, metaInv,
+    locationName, originGroupBy, wonGroupBy,
+    lostKeys, lostTopN, lostByReasonKeyCount,
+    wonKeys, wonTopN, metaInv,
   ])
 
   return (
@@ -1819,103 +1563,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         </ChartCardContent>
       </DashboardCard>
 
-      <DashboardCard>
-        <ChartCardHeader
-          title={`Oportunidades de Pauta por Etapa del Pipeline${stageIncludeLost ? "" : " (Sin oportunidades perdidas)"}`}
-          total={pautaByStageTotal}
-          icon={Layers}
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setStageIncludeLost((v) => !v)}
-                className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Oportunidades perdidas
-                <span className={`relative inline-flex h-3.5 w-6 shrink-0 rounded-full transition-colors duration-200 ${stageIncludeLost ? "bg-amber-500" : "bg-muted-foreground/30"}`}>
-                  <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white shadow transition-transform duration-200 ${stageIncludeLost ? "translate-x-2.5" : "translate-x-0.5"}`} />
-                </span>
-              </button>
-              <GroupKeyFilter groupBy={stageGroupBy} options={pautaByStageOptions} selected={stageKeys} onChange={setStageKeys} />
-              <TopNSlider value={stageTopN} max={pautaByStageKeyCount} onChange={setStageTopN} disabled={stageKeys.length > 0} />
-              <GroupByToggle value={stageGroupBy} onChange={setStageGroupBy} />
-            </div>
-          }
-        />
-        <ChartCardContent>
-          {pautaByStageKeys.length === 0 ? (
-            <ChartEmpty
-              message={stageKeys.length > 0 ? groupSelectionEmpty(stageGroupBy) : "Sin oportunidades con datos de atribución."}
-              height={300}
-            />
-          ) : (
-            <>
-              <ChartContainer config={pautaByStageConfig} className="aspect-auto" style={{ height: 480 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={pautaByStageRows} margin={{ top: 5, right: 16, left: 8, bottom: 16 }} barCategoryGap="20%">
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID_STROKE} />
-                    <XAxis
-                      dataKey="stage"
-                      tick={{ fontSize: 10, fill: CHART_TICK.fill }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval={0}
-                      angle={-25}
-                      textAnchor="end"
-                      tickFormatter={(v: string) => v.length > 22 ? v.slice(0, 22) + "…" : v}
-                    />
-                    <YAxis tick={{ ...CHART_TICK }} tickLine={false} axisLine={false} allowDecimals={false} />
-                    <ChartTooltip content={<NonZeroTooltipContent />} />
-                    <Legend
-                      wrapperStyle={{ fontSize: 10, paddingTop: 48, lineHeight: "36px" }}
-                      iconSize={8}
-                      formatter={(value: string) => (
-                        <span
-                          style={{ color: "#374151", marginRight: 4 }}
-                          title={value}
-                        >
-                          {paidGroupByLabel(value, stageGroupBy, stageCampaignCut).slice(0, 20)}
-                        </span>
-                      )}
-                    />
-                    {pautaByStageKeys.map((key, i) => (
-                      <Bar
-                        key={key}
-                        dataKey={key}
-                        stackId="a"
-                        fill={stageGroupBy === "platform" ? (PLATFORM_COLORS[key] ?? CHART_PALETTE[i % CHART_PALETTE.length]) : CHART_PALETTE[i % CHART_PALETTE.length]}
-                        radius={i === pautaByStageKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                        maxBarSize={56}
-                        cursor="pointer"
-                        onClick={(data: any) => {
-                          const count = data[key] as number
-                          if (!count) return
-                          const stage = data.stage as string
-                          const items = opportunities.filter((o) => {
-                            if (!isDePauta(o)) return false
-                            if (o.stage !== stage) return false
-                            if (!stageIncludeLost && o.status === "lost") return false
-                            return paidGroupByKey(o, stageGroupBy, pautaNameByContact) === key
-                          })
-                          const label = paidGroupByLabel(key, stageGroupBy, stageCampaignCut)
-                          openDrill(
-                            `${label} · ${stage}`,
-                            items,
-                            `${items.length} oportunidad${items.length !== 1 ? "es" : ""} en ${stage}`
-                          )
-                        }}
-                      />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-              <ChartHint>
-                {`Apilado por ${paidGroupByHint(stageGroupBy)} · ${groupScopeNote(stageKeys, stageTopN, pautaByStageKeyCount, stageGroupBy)} · haz clic en un segmento para ver las oportunidades`}
-              </ChartHint>
-            </>
-          )}
-        </ChartCardContent>
-      </DashboardCard>
-
       <DashboardCard tone="lost">
         <ChartCardHeader
           title="Oportunidades Perdidas por Razón de Pérdida"
@@ -2014,301 +1661,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
           )}
         </ChartCardContent>
       </DashboardCard>
-
-      {/* Panel 2 — Oportunidades por ID de Anuncio / Panel 3 — URLs por plataforma */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <DashboardCard>
-          <ChartCardHeader
-            title="Oportunidades por ID de Anuncio"
-            total={leadsByAdId.reduce((s, e) => s + e.count, 0)}
-            icon={Tag}
-            actions={
-              <ScopePill
-                label="META · Form + WhatsApp"
-                tooltip="Solo pautas de META. El ID de anuncio aplica tanto a pautas de formulario como de WhatsApp."
-              />
-            }
-          />
-          <ChartCardContent>
-            {leadsByAdId.length === 0 ? (
-              <ChartEmpty message="Sin datos de ID de anuncio." height={220} />
-            ) : (
-              <>
-                <div className="overflow-auto max-h-[340px] rounded-md border border-border/40">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="text-xs">ID</TableHead>
-                        <TableHead className="text-xs text-right"># de oportunidades</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {leadsByAdId.map((entry) => (
-                        <TableRow
-                          key={entry.adId}
-                          className="cursor-pointer"
-                          onClick={() =>
-                            openDrill(
-                              `Ad ID: ${entry.adId}`,
-                              opportunities.filter((o) => o.adId === entry.adId)
-                            )
-                          }
-                        >
-                          <TableCell className="font-mono text-xs text-foreground">
-                            <span className="inline-flex items-center gap-0">
-                              {entry.adId}
-                              <CopyButton value={entry.adId} />
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right text-sm font-semibold tabular-nums text-foreground">
-                            {entry.count}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                <ChartHint>Haz clic en una fila para ver las oportunidades</ChartHint>
-              </>
-            )}
-          </ChartCardContent>
-        </DashboardCard>
-
-        <DashboardCard>
-          <ChartCardHeader
-            title="Oportunidades por URL (Facebook / Instagram)"
-            total={
-              leadsByPlatformUrl.fb.reduce((s, e) => s + e.count, 0) +
-              leadsByPlatformUrl.ig.reduce((s, e) => s + e.count, 0)
-            }
-            icon={BarChart3}
-            actions={
-              <ScopePill
-                label="META · Solo WhatsApp"
-                tooltip="Solo pautas de META. La URL solo aplica a pautas de WhatsApp, no de formulario."
-              />
-            }
-          />
-          <ChartCardContent>
-            {leadsByPlatformUrl.fb.length === 0 && leadsByPlatformUrl.ig.length === 0 ? (
-              <ChartEmpty message="Sin datos de URL de Facebook o Instagram." height={220} />
-            ) : (
-              <>
-                <div className="overflow-auto max-h-[340px] rounded-md border border-border/40">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="text-xs">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Facebook className="h-3.5 w-3.5 text-[#1877f2]" /> Facebook
-                          </span>
-                        </TableHead>
-                        <TableHead className="text-xs text-right">#</TableHead>
-                        <TableHead className="text-xs border-l border-border/40">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Instagram className="h-3.5 w-3.5 text-[#e1306c]" /> Instagram
-                          </span>
-                        </TableHead>
-                        <TableHead className="text-xs text-right">#</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Array.from({
-                        length: Math.max(leadsByPlatformUrl.fb.length, leadsByPlatformUrl.ig.length),
-                      }).map((_, i) => {
-                        const fb = leadsByPlatformUrl.fb[i]
-                        const ig = leadsByPlatformUrl.ig[i]
-                        return (
-                          <TableRow key={i} className="hover:bg-transparent">
-                            {fb ? (
-                              <>
-                                <TableCell
-                                  className="cursor-pointer font-mono text-xs text-foreground hover:text-primary"
-                                  title={fb.url}
-                                  onClick={() =>
-                                    openDrill(
-                                      `Facebook: ${fb.url}`,
-                                      opportunities.filter((o) => o.attributionUrl === fb.url)
-                                    )
-                                  }
-                                >
-                                  <span className="inline-flex items-center gap-0">
-                                    {shortUrlLabel(fb.url)}
-                                    <LinkButton value={fb.url} />
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right text-sm font-semibold tabular-nums text-foreground">
-                                  {fb.count}
-                                </TableCell>
-                              </>
-                            ) : (
-                              <>
-                                <TableCell />
-                                <TableCell />
-                              </>
-                            )}
-                            {ig ? (
-                              <>
-                                <TableCell
-                                  className="cursor-pointer border-l border-border/40 font-mono text-xs text-foreground hover:text-primary"
-                                  title={ig.url}
-                                  onClick={() =>
-                                    openDrill(
-                                      `Instagram: ${ig.url}`,
-                                      opportunities.filter((o) => o.attributionUrl === ig.url)
-                                    )
-                                  }
-                                >
-                                  <span className="inline-flex items-center gap-0">
-                                    {shortUrlLabel(ig.url)}
-                                    <LinkButton value={ig.url} />
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right text-sm font-semibold tabular-nums text-foreground">
-                                  {ig.count}
-                                </TableCell>
-                              </>
-                            ) : (
-                              <>
-                                <TableCell className="border-l border-border/40" />
-                                <TableCell />
-                              </>
-                            )}
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-                <ChartHint>Haz clic en una URL para ver las oportunidades</ChartHint>
-              </>
-            )}
-          </ChartCardContent>
-        </DashboardCard>
-      </div>
-
-      {/* Panel 4a — Tráfico Pagado con Cita / Panel 4b — Deals Ganados de Tráfico Pagado */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-1">
-        <DashboardCard>
-          <ChartCardHeader
-            title="Citas por pauta"
-            total={paidTrafficWithAppt.reduce((s, e) => s + (e.count as number), 0)}
-            icon={Calendar}
-            actions={
-              <div className="flex flex-wrap items-center gap-2">
-                {apptStatuses.length > 0 && (
-                  <Select value={apptStatusFilter} onValueChange={setApptStatusFilter}>
-                    <SelectTrigger
-                      className="h-7 w-[150px] text-xs"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <SelectValue placeholder="Todos los estatus" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos los estatus</SelectItem>
-                      {apptStatuses.map((s) => (
-                        <SelectItem key={s} value={s}>{apptStatusLabel(s)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <GroupKeyFilter groupBy={apptGroupBy} options={apptOptions} selected={apptKeys} onChange={setApptKeys} />
-                <TopNSlider value={apptTopN} max={apptKeyCount} onChange={setApptTopN} disabled={apptKeys.length > 0} />
-                <GroupByToggle value={apptGroupBy} onChange={setApptGroupBy} />
-              </div>
-            }
-          />
-          <ChartCardContent>
-            {paidTrafficWithAppt.length === 0 ? (
-              <ChartEmpty
-                message={apptKeys.length > 0 ? groupSelectionEmpty(apptGroupBy) : "Sin leads de tráfico pagado con cita."}
-                height={220}
-              />
-            ) : (
-              <>
-                <ChartContainer
-                  config={apptChartConfig}
-                  className="aspect-auto"
-                  style={{ height: Math.min(560, Math.max(220, paidTrafficWithAppt.length * 40 + 48)) }}
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      layout="vertical"
-                      data={paidTrafficWithAppt}
-                      margin={{ top: 5, right: 40, left: 8, bottom: 8 }}
-                      barCategoryGap="24%"
-                    >
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CHART_GRID_STROKE} />
-                      <XAxis type="number" tick={{ ...CHART_TICK }} tickLine={false} axisLine={false} allowDecimals={false} />
-                      <YAxis
-                        type="category"
-                        dataKey="label"
-                        width={260}
-                        tick={(props: any) => {
-                          const { x, y, payload } = props
-                          const full = String(payload?.value ?? "")
-                          const display = full.length > 40 ? full.slice(0, 40) + "…" : full
-                          return (
-                            <text
-                              x={x}
-                              y={y}
-                              dy={4}
-                              textAnchor="end"
-                              fontSize={11}
-                              fill={CHART_TICK.fill}
-                            >
-                              <title>{full}</title>
-                              {display}
-                            </text>
-                          )
-                        }}
-                        tickLine={false}
-                        axisLine={false}
-                        interval={0}
-                      />
-                      <ChartTooltip
-                        content={
-                          <NonZeroTooltipContent
-                            labelFormatter={(_: unknown, p: any) => p?.[0]?.payload?.rawKey ?? String(_)}
-                          />
-                        }
-                      />
-                      <Bar
-                        dataKey="count"
-                        fill={BRAND_AMBER}
-                        radius={[0, 4, 4, 0]}
-                        maxBarSize={36}
-                        cursor="pointer"
-                        onClick={(data: any) => {
-                          const rawKey = data.rawKey as string
-                          // Mirror the active status filter so the drawer matches the bar.
-                          const filteredAppts = apptStatusFilter === "all"
-                            ? appointments
-                            : appointments.filter((a) => a.status === apptStatusFilter)
-                          const apptContactIds = new Set(filteredAppts.map((a) => a.contactId))
-                          const items = opportunities.filter(
-                            (o) => isDePauta(o) && apptContactIds.has(o.contactId) && paidGroupByKey(o, apptGroupBy, pautaNameByContact) === rawKey,
-                          )
-                          openDrill(
-                            data.label,
-                            items,
-                            `${items.length} oportunidad${items.length !== 1 ? "es" : ""} con cita`,
-                          )
-                        }}
-                      >
-                        <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: CHART_TICK.fill }} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-                <ChartHint>{`Leads de publicidad pagada (Meta/TikTok + Google) con cita · ${groupScopeNote(apptKeys, apptTopN, apptKeyCount, apptGroupBy)} · ordenado por # de citas · clic en una barra para ver las oportunidades y su etapa`}</ChartHint>
-              </>
-            )}
-          </ChartCardContent>
-        </DashboardCard>
-      </div>
-
-
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <DashboardCard tone="won">

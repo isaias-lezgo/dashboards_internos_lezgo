@@ -34,7 +34,6 @@ import type { Contact, MetaAdsStatus, Opportunity } from "@/lib/types"
 import {
   buildPaidPerformance,
   sumRows,
-  NO_AD_KEY,
   type PaidGroup,
   type PaidGroupBy,
   type PaidPerformanceInput,
