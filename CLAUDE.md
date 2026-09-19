@@ -638,6 +638,23 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
 - Un solo motor (`lib/pmi.ts`, puro, navegador) alimenta pestaña y PDF
   (`lib/pmi-report.ts`, `reportType: "pmi"`). Fuera de alcance: cambaceo, accountability,
   objetivos editables, asistente.
+- **Las gráficas del Excel** (2026-09-19): embudo mensual (`pmi-funnel.tsx`), rankings con
+  carita (`pmi-ranking-chart.tsx`, uno para mes, trimestre y año), líneas mensuales y
+  trimestres (`pmi-year-charts.tsx`; `PmiYear.quarters` en el motor, meta del trimestre =
+  Σ activos del mes × meta mensual, la misma regla que `pctMeta`).
+  - **La silueta del embudo NO codifica el dato.** Con 16 leads y 1 perfilamiento un
+    embudo proporcional desaparece; los anchos son fijos y lo que se mide es el relleno
+    (avance contra objetivo, por monto en apartados y cierres). Reemplazó a los tiles y
+    la tira de conversiones, que eran lo mismo en dos piezas.
+  - **Las caritas son iniciales, no fotos** (decisión de producto: cero mantenimiento).
+    Seis tonos, el máximo que pasa el validador de paleta entre TODOS los pares en los dos
+    temas; `buildAvatarPalette` asigna por hash con sondeo lineal sobre todos los nombres
+    del proyecto y lo publica por contexto, porque un hash a secas chocaba (Yconia: tres
+    de cuatro asesores en el mismo tono). Con más de seis asesores se repite tono; las
+    iniciales son la identidad.
+  - Un ranking de puros `$0` es `ChartEmpty`, no una fila de caritas sobre nada; la
+    tabla de abajo sigue listando a cada asesor. **El PDF no lleva embudo ni caritas**
+    todavía — sigue con sus tablas.
 
 ### PDF report export
 

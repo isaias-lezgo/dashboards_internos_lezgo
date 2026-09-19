@@ -420,6 +420,19 @@ export interface PmiYearRankingRow {
   promedio: number | null; // monto ÷ mesesActivo
 }
 
+// Un trimestre de la hoja anual: su ranking propio, con la misma regla de meta
+// que el anual (meta mensual × meses con actividad, aquí dentro del trimestre).
+export interface PmiQuarter {
+  index: number; // 0-3
+  label: string; // "Ene – Mar"
+  team: PmiCounts;
+  // Σ sobre los tres meses de (asesores activos ese mes × meta mensual);
+  // null si nadie tuvo actividad, para que la UI diga "—" y no "0 %".
+  objectives: PmiObjectives | null;
+  rankingApartados: PmiRankingRow[];
+  rankingCierres: PmiRankingRow[];
+}
+
 export interface PmiYear {
   year: number;
   // Hoy en día local: un mes que empieza después no ha ocurrido.
@@ -432,6 +445,7 @@ export interface PmiYear {
     activeByMonth: number[]; // asesores con actividad, por mes
     pctMeta: (PmiObjectives | null)[]; // avance por mes; null sin asesores activos
   };
+  quarters: PmiQuarter[]; // 4
   rankingApartados: PmiYearRankingRow[];
   rankingCierres: PmiYearRankingRow[];
   estimatedCount: number;
@@ -471,6 +485,36 @@ function yearRanking(advisors: PmiYearAdvisor[], kind: "apartados" | "cierres"):
       };
     })
     .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
+}
+
+const QUARTER_LABELS = ["Ene – Mar", "Abr – Jun", "Jul – Sep", "Oct – Dic"] as const;
+
+// Solo entran los asesores con actividad en el trimestre: un asesor que no
+// registró nada en tres meses no tiene meta contra la cual medirse.
+function quarterRanking(advisors: PmiYearAdvisor[], q: number, kind: "apartados" | "cierres"): PmiRankingRow[] {
+  const montoKey = kind === "apartados" ? "montoApartados" : "montoCierres";
+  return advisors
+    .filter((a) => hasActivity(a.byQuarter[q]))
+    .map((a) => {
+      const monto = a.byQuarter[q][montoKey];
+      const mesesActivo = a.byMonth.slice(q * 3, q * 3 + 3).filter(hasActivity).length;
+      return { name: a.name, monto, count: a.byQuarter[q][kind], avance: ratio(monto, PMI_OBJECTIVES[montoKey] * mesesActivo) };
+    })
+    .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
+}
+
+function buildQuarters(advisors: PmiYearAdvisor[], teamByQuarter: PmiCounts[], activeByMonth: number[]): PmiQuarter[] {
+  return [0, 1, 2, 3].map((q) => {
+    const activeMonths = activeByMonth.slice(q * 3, q * 3 + 3).reduce((n, a) => n + a, 0);
+    return {
+      index: q,
+      label: QUARTER_LABELS[q],
+      team: teamByQuarter[q],
+      objectives: activeMonths > 0 ? scaleObjectives(PMI_OBJECTIVES, activeMonths) : null,
+      rankingApartados: quarterRanking(advisors, q, "apartados"),
+      rankingCierres: quarterRanking(advisors, q, "cierres"),
+    };
+  });
 }
 
 export function buildPmiYear(input: PmiInput, year: number, now: Date = new Date()): PmiYear {
@@ -522,11 +566,13 @@ export function buildPmiYear(input: PmiInput, year: number, now: Date = new Date
     };
   });
 
+  const teamByQuarter = quarters(teamByMonth);
   return {
     year,
     today,
     advisors,
-    team: { byMonth: teamByMonth, byQuarter: quarters(teamByMonth), total: sumCounts(teamByMonth), activeByMonth, pctMeta },
+    team: { byMonth: teamByMonth, byQuarter: teamByQuarter, total: sumCounts(teamByMonth), activeByMonth, pctMeta },
+    quarters: buildQuarters(advisors, teamByQuarter, activeByMonth),
     rankingApartados: yearRanking(advisors, "apartados"),
     rankingCierres: yearRanking(advisors, "cierres"),
     estimatedCount: events.filter((e) => e.estimated && e.advisor !== UNASSIGNED).length,

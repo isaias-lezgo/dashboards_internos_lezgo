@@ -292,6 +292,27 @@ function yearMain() {
   assert.equal(y.rankingCierres[0].name, "Arely");
   assert.equal(y.rankingCierres[1].name, "Monica");
   assert.equal(y.estimatedCount, 0);
+
+  // Trimestres: cuatro, con etiqueta, ranking propio y meta = Σ (activos del mes × meta mensual).
+  assert.equal(y.quarters.length, 4);
+  assert.deepEqual(y.quarters.map((q) => q.label), ["Ene – Mar", "Abr – Jun", "Jul – Sep", "Oct – Dic"]);
+  const q2 = y.quarters[1];
+  assert.equal(q2.team.apartados, 2);
+  assert.equal(q2.team.montoApartados, 5_967_052.46 + 6_497_283.09);
+  // Arely activa en mayo y junio (abril no): la meta del trimestre es 2 meses × $3M.
+  assert.equal(q2.objectives?.montoApartados, 6_000_000);
+  assert.deepEqual(q2.rankingApartados.map((r) => [r.name, r.count]), [["Arely", 2]]);
+  assert.ok(Math.abs((q2.rankingApartados[0].avance ?? 0) - (5_967_052.46 + 6_497_283.09) / 6_000_000) < 1e-9);
+  // Q1: Arely (lead en marzo) y Monica (lead y cierre en enero) activas; ninguna apartó.
+  const q1 = y.quarters[0];
+  assert.equal(q1.objectives?.montoApartados, 6_000_000, "un mes activo cada una");
+  assert.deepEqual(q1.rankingApartados.map((r) => [r.name, r.monto]), [["Arely", 0], ["Monica", 0]]);
+  assert.deepEqual(q1.rankingCierres.map((r) => r.name), ["Monica", "Arely"]);
+  assert.equal(q1.rankingCierres[0].avance, 3_145_022.6 / 3_000_000, "meta = 1 mes activo × $3M");
+  // Q4 sin actividad: sin meta y sin ranking, nunca 0 %.
+  const q4 = y.quarters[3];
+  assert.equal(q4.objectives, null);
+  assert.equal(q4.rankingApartados.length, 0);
 }
 
 async function main() {

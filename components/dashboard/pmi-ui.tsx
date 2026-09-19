@@ -1,9 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { createContext, useContext, type ReactNode } from "react"
 import { Info } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PMI_CONVERSION_TARGETS, semaphore, type PmiConversions, type PmiIndicator, type PmiTone } from "@/lib/pmi"
+import { PMI_CONVERSION_TARGETS, type PmiConversions, type PmiIndicator, type PmiTone } from "@/lib/pmi"
 
 export const INDICATOR_LABELS: Record<PmiIndicator, string> = {
   leads: "Leads",
@@ -28,6 +28,96 @@ export function toneClass(tone: PmiTone): string {
   }
 }
 
+// El mismo semáforo para las barras de Recharts, que no leen clases de Tailwind.
+// Tonos medios que aguantan los dos temas; el nulo es el gris de la interfaz.
+export function toneFill(tone: PmiTone): string {
+  switch (tone) {
+    case "alto": return "#10b981"
+    case "medio": return "#0ea5e9"
+    case "bajo": return "#f43f5e"
+    default: return "hsl(var(--muted-foreground) / 0.35)"
+  }
+}
+
+// Una conversión se colorea contra su meta (≥ meta, ≥ 75 % de la meta, debajo),
+// no contra las bandas del semáforo de resultados.
+export function conversionTone(r: number | null, target: number): PmiTone {
+  if (r === null) return null
+  return r >= target ? "medio" : r >= target * 0.75 ? "bajo" : null
+}
+
+// ── Avatar por iniciales ────────────────────────────────────────────────────
+// No hay fotos: el asesor se reconoce por sus iniciales sobre un color que le
+// pertenece. Son seis tonos: el máximo que pasa el validador de paleta entre
+// TODOS los pares en los dos temas (la separación por daltonismo queda en la
+// banda 6-8, legal porque las iniciales son la identidad y el color solo ayuda).
+//
+// El color se asigna por hash del nombre, así no cambia cuando alguien entra o
+// sale del ranking; pero un hash a secas choca (Yconia: tres de cuatro asesores
+// caían en el mismo tono). `buildAvatarPalette` resuelve los choques sobre el
+// conjunto completo de nombres del proyecto y lo publica por contexto.
+
+const AVATAR_TONES = ["#1d4ed8", "#b45309", "#db2777", "#a21caf", "#0891b2", "#65a30d"] as const
+
+export function advisorInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return "?"
+  const first = words[0][0] ?? ""
+  const second = words.length > 1 ? words[1][0] ?? "" : words[0][1] ?? ""
+  return (first + second).toUpperCase()
+}
+
+function nameHash(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h
+}
+
+/** Un tono por nombre; con hasta seis nombres, sin repetir (sondeo lineal desde el hash). */
+export function buildAvatarPalette(names: Iterable<string>): Map<string, string> {
+  const out = new Map<string, string>()
+  const taken = new Set<number>()
+  for (const name of [...new Set(names)].sort((a, b) => a.localeCompare(b, "es"))) {
+    let slot = nameHash(name) % AVATAR_TONES.length
+    if (taken.size < AVATAR_TONES.length) while (taken.has(slot)) slot = (slot + 1) % AVATAR_TONES.length
+    taken.add(slot)
+    out.set(name, AVATAR_TONES[slot])
+  }
+  return out
+}
+
+const AvatarPaletteContext = createContext<Map<string, string> | null>(null)
+export const AvatarPaletteProvider = AvatarPaletteContext.Provider
+
+export function useAvatarColor(name: string): string {
+  const palette = useContext(AvatarPaletteContext)
+  return palette?.get(name) ?? AVATAR_TONES[nameHash(name) % AVATAR_TONES.length]
+}
+
+export function AdvisorAvatar({ name, className }: { name: string; className?: string }) {
+  return (
+    <span
+      className={cn("inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold text-white", className ?? "h-8 w-8 text-xs")}
+      style={{ backgroundColor: useAvatarColor(name) }}
+      aria-hidden
+    >
+      {advisorInitials(name)}
+    </span>
+  )
+}
+
+/** La misma carita, en SVG, para dibujarla encima de una barra de Recharts. */
+export function AvatarGlyph({ name, cx, cy, r }: { name: string; cx: number; cy: number; r: number }) {
+  return (
+    <g aria-hidden>
+      <circle cx={cx} cy={cy} r={r} fill={useAvatarColor(name)} />
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={r * 0.85} fontWeight={600} fill="#fff">
+        {advisorInitials(name)}
+      </text>
+    </g>
+  )
+}
+
 export function fmtInt(n: number): string {
   return n.toLocaleString("es-MX", { maximumFractionDigits: 0 })
 }
@@ -36,73 +126,25 @@ export function fmtMxn(n: number): string {
   return n.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })
 }
 
+/** "$3.8M" / "$689k": para etiquetas encima de barras, donde el monto completo no cabe. */
+export function fmtMxnCompact(n: number): string {
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toLocaleString("es-MX", { maximumFractionDigits: abs >= 10_000_000 ? 0 : 1 })}M`
+  if (abs >= 1_000) return `$${(n / 1_000).toLocaleString("es-MX", { maximumFractionDigits: 0 })}k`
+  return `$${n.toLocaleString("es-MX", { maximumFractionDigits: 0 })}`
+}
+
 export function fmtPct(r: number | null, digits = 0): string {
   if (r === null || !Number.isFinite(r)) return "—"
   return `${(r * 100).toLocaleString("es-MX", { maximumFractionDigits: digits, minimumFractionDigits: digits })} %`
 }
 
-export function PmiTile({
-  label, value, objective, avance, sub, onClick,
-}: {
-  label: string
-  value: string
-  objective: string
-  /** resultado ÷ objetivo; null sin objetivo */
-  avance: number | null
-  sub?: string
-  onClick?: () => void
-}) {
-  // Mismas bandas que las celdas: el tile es el total del mes contra su objetivo.
-  const tone = avance === null ? null : semaphore(avance, 1)
-  return (
-    <div
-      className={cn(
-        "flex flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3.5",
-        onClick && "cursor-pointer transition-[border-color] hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-      )}
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } } : undefined}
-    >
-      <p className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{label}</p>
-      <p className="text-2xl font-semibold tabular-nums leading-none">{value}</p>
-      {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
-      <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
-        <span className="truncate text-muted-foreground">Objetivo {objective}</span>
-        <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-medium tabular-nums", toneClass(tone))}>{fmtPct(avance)}</span>
-      </div>
-    </div>
-  )
-}
-
-const CONVERSION_LABELS: { key: keyof PmiConversions; label: string }[] = [
+export const CONVERSION_LABELS: { key: keyof PmiConversions; label: string }[] = [
   { key: "leadPerfil", label: "Leads → Perfilamientos" },
   { key: "perfilCita", label: "Perfilamientos → Citas" },
   { key: "citaApartado", label: "Citas → Apartados" },
   { key: "apartadoCierre", label: "Apartados → Cierres" },
 ]
-
-export function ConversionStrip({ conversions }: { conversions: PmiConversions }) {
-  return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      {CONVERSION_LABELS.map(({ key, label }) => {
-        const r = conversions[key]
-        const target = PMI_CONVERSION_TARGETS[key]
-        const tone: PmiTone = r === null ? null : r >= target ? "medio" : r >= target * 0.75 ? "bajo" : null
-        return (
-          <div key={key} className="rounded-lg border border-border bg-card px-3 py-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-            <div className="mt-1 flex items-baseline justify-between gap-2">
-              <span className={cn("rounded px-1.5 text-lg font-semibold tabular-nums", toneClass(tone))}>{fmtPct(r)}</span>
-              <span className="text-[11px] text-muted-foreground">meta {fmtPct(target)}</span>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 export function EstimatedNote({ count }: { count: number }) {
   if (count === 0) return null

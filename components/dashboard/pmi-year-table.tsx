@@ -4,7 +4,9 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { PMI_OBJECTIVES, type PmiCounts, type PmiIndicator, type PmiYear, type PmiYearRankingRow } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
-import { INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct } from "./pmi-ui"
+import { INDICATOR_LABELS, AdvisorAvatar, fmtInt, fmtMxn, fmtPct } from "./pmi-ui"
+import { PmiRankingChart } from "./pmi-ranking-chart"
+import { MonthlyMoneyLine, QuarterRankings } from "./pmi-year-charts"
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 type Metric = PmiIndicator | "montoApartados" | "montoCierres"
@@ -55,7 +57,7 @@ function YearRanking({ title, rows, objective }: { title: string; rows: PmiYearR
             <tbody>
               {rows.map((r) => (
                 <tr key={r.name} className="border-t border-border/60">
-                  <td className="py-1.5 pr-2 font-medium">{r.name}</td>
+                  <td className="py-1.5 pr-2 font-medium"><span className="flex items-center gap-2"><AdvisorAvatar name={r.name} className="h-5 w-5 text-[9px]" />{r.name}</span></td>
                   <td className="py-1.5 px-2 text-right">{fmtMxn(r.monto)}</td>
                   <td className="py-1.5 px-2 text-right">{fmtInt(r.count)}</td>
                   <td className="py-1.5 px-2 text-right">{r.mesesActivo}</td>
@@ -73,6 +75,8 @@ function YearRanking({ title, rows, objective }: { title: string; rows: PmiYearR
 }
 
 export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: PmiIndicator, ids: string[], label: string) => void }) {
+  // El clic en la barra de un asesor abre sus registros del período de esa gráfica.
+  const drillAdvisor = (kind: "apartados" | "cierres", name: string, ids: string[], label: string) => { if (ids.length) onCell(kind, ids, `${name} · ${label}`) }
   const [metricKey, setMetricKey] = useState<Metric>("apartados")
   const metric = METRICS.find((m) => m.key === metricKey)!
   // Un mes que empieza después de hoy no ha ocurrido: "—", no 0.
@@ -81,6 +85,22 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
   const fmtAvg = (v: number) => (metric.money ? fmtMxn(v) : v.toLocaleString("es-MX", { maximumFractionDigits: 1 }))
   return (
     <>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <MonthlyMoneyLine year={year} kind="apartados" onPoint={onCell} />
+        <MonthlyMoneyLine year={year} kind="cierres" onPoint={onCell} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PmiRankingChart title={`Ranking de apartados ${year.year}`} rows={year.rankingApartados} objective={null} empty="Sin apartados en el año."
+          hint={<ScopePill label="Meta anual" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoApartados)} por asesor por cada mes con actividad. El color de la barra es el semáforo contra esa meta; el detalle está en la tabla de abajo.`} />}
+          onBar={(name) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("apartados", name, a.total.ids.apartados, String(year.year)) }} />
+        <PmiRankingChart title={`Ranking de cierres ${year.year}`} rows={year.rankingCierres} objective={null} empty="Sin cierres en el año."
+          hint={<ScopePill label="Meta anual" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoCierres)} por asesor por cada mes con actividad. El color de la barra es el semáforo contra esa meta; el detalle está en la tabla de abajo.`} />}
+          onBar={(name) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("cierres", name, a.total.ids.cierres, String(year.year)) }} />
+      </div>
+      <QuarterRankings year={year} kind="apartados"
+        onBar={(name, q) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("apartados", name, a.byQuarter[q.index].ids.apartados, `${q.label} ${year.year}`) }} />
+      <QuarterRankings year={year} kind="cierres"
+        onBar={(name, q) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("cierres", name, a.byQuarter[q.index].ids.cierres, `${q.label} ${year.year}`) }} />
       <DashboardCard>
         <ChartCardHeader title={`Asesor × mes · ${year.year}`}
           actions={
@@ -107,7 +127,7 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
               <tbody>
                 {year.advisors.map((a) => (
                   <tr key={a.name} className="border-t border-border/60">
-                    <td className="py-1 pr-2 font-medium">{a.name}</td>
+                    <td className="py-1 pr-2 font-medium"><span className="flex items-center gap-2"><AdvisorAvatar name={a.name} className="h-5 w-5 text-[9px]" />{a.name}</span></td>
                     {a.byMonth.map((c, i) => futureMonth(i) ? futureCell(i) : <Cell key={i} c={c} metric={metric} onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · ${MONTHS[i]} ${year.year}`)} />)}
                     {a.byQuarter.map((c, q) => <Cell key={`q${q}`} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · T${q + 1} ${year.year}`)} />)}
                     <Cell c={a.total} metric={metric} strong onClick={() => onCell(metric.drill, a.total.ids[metric.drill], `${a.name} · ${year.year}`)} />
