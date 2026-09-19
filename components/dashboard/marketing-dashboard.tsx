@@ -38,10 +38,10 @@ import { MultiSelectFilter, type MultiSelectOption } from "./multi-select-filter
 import { CampaignActivityChart } from "./campaign-activity-chart"
 import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
-import { MetaInvestmentTiles, useMetaInvestment, metaCoverKpis, metaScopeNote } from "./meta-investment-section"
+import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
+import { PaidPerformanceTable, usePaidPerformance } from "./paid-performance-table"
 import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
-import { EMPTY_META } from "@/lib/paid-performance"
-import { Coins } from "lucide-react"
+import { EMPTY_META, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
 import type { ResolvedDateRange } from "@/lib/date-range"
 import { OrigenDeLeadInfo } from "./origen-de-lead-criteria"
@@ -577,6 +577,27 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   const rankingPautas = allPautas ?? pautas
   const [drill, setDrill] = useState<DrillState>(DRILL_CLOSED)
 
+  // Every contact id that has at least one Pauta custom-object record, over the
+  // FULL (unfiltered) pauta history — a pauta created outside the active date
+  // window still proves its contact arrived through paid advertising.
+  const pautaContactIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const p of rankingPautas) if (p.contactId) s.add(p.contactId)
+    return s
+  }, [rankingPautas])
+
+  // contactId → the name of the contact's FIRST named Pauta record. Last-resort
+  // fallback for resolveCampaignName (shared with the AI tools via lib/pauta).
+  const pautaNameByContact = useMemo(() => buildPautaNameByContact(rankingPautas), [rankingPautas])
+
+  // Canonical "es de pauta" predicate for every "por pauta" chart — the union of
+  // "contact linked to a Pauta record" and isPaidTraffic. Shared with the AI tools
+  // via lib/pauta (isDePautaOpp); see that module for the full rationale.
+  const isDePauta = useCallback(
+    (opp: Opportunity) => isDePautaOpp(opp, pautaContactIds),
+    [pautaContactIds]
+  )
+
   // El contexto de atribución se construye UNA vez por payload y lo comparten los
   // tiles de Meta y la tabla de rendimiento: dos contextos podrían resolver un ad
   // id distinto. Sin Meta el índice está vacío y la cadena devuelve el id crudo.
@@ -599,6 +620,25 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     ctx: attributionCtx,
     dateRange,
     attributeFiltersActive: filtersLabel !== undefined,
+  })
+
+  // Rendimiento de pauta: la tabla y su sección del PDF salen del mismo cálculo.
+  const [paidGroupBy, setPaidGroupBy] = useState<PaidTableGroupBy>("campaign")
+  const [paidIncludeLost, setPaidIncludeLost] = useState(true)
+  const paidMetaInput = useMemo(
+    () => (metaAds && metaInv ? { data: metaAds, range: metaInv.range } : null),
+    [metaAds, metaInv]
+  )
+  const paidGroups = usePaidPerformance({
+    opportunities,
+    contacts,
+    appointments,
+    pipelines,
+    pautaNameByContact,
+    ctx: attributionCtx,
+    groupBy: paidGroupBy,
+    includeLost: paidIncludeLost,
+    meta: paidMetaInput,
   })
   const [hoveredAdType, setHoveredAdType] = useState<number | undefined>(undefined)
   const { groupBy: apptGroupBy, setGroupBy: setApptGroupBy, selected: apptKeys, setSelected: setApptKeys } = useGroupKeyFilter("campaign")
@@ -645,27 +685,6 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
   const isUniqueLead = useCallback(
     (p: Pauta) => (pautaReingresoMap.get(p.id) ?? "Primer ingreso") === "Primer ingreso",
     [pautaReingresoMap]
-  )
-
-  // Every contact id that has at least one Pauta custom-object record, over the
-  // FULL (unfiltered) pauta history — a pauta created outside the active date
-  // window still proves its contact arrived through paid advertising.
-  const pautaContactIds = useMemo(() => {
-    const s = new Set<string>()
-    for (const p of rankingPautas) if (p.contactId) s.add(p.contactId)
-    return s
-  }, [rankingPautas])
-
-  // contactId → the name of the contact's FIRST named Pauta record. Last-resort
-  // fallback for resolveCampaignName (shared with the AI tools via lib/pauta).
-  const pautaNameByContact = useMemo(() => buildPautaNameByContact(rankingPautas), [rankingPautas])
-
-  // Canonical "es de pauta" predicate for every "por pauta" chart — the union of
-  // "contact linked to a Pauta record" and isPaidTraffic. Shared with the AI tools
-  // via lib/pauta (isDePautaOpp); see that module for the full rationale.
-  const isDePauta = useCallback(
-    (opp: Opportunity) => isDePautaOpp(opp, pautaContactIds),
-    [pautaContactIds]
   )
 
   // Derive ordered stage list using GHL pipeline order; fall back to alphabetical for unlisted stages
@@ -1448,12 +1467,21 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         onPautasClick={openAllPautasDrill}
       />
 
-      {metaInv && (
-        <DashboardCard>
-          <ChartCardHeader title="Inversión en pauta" icon={Coins} actions={<ScopePill label="cohorte por fecha" tooltip={metaScopeNote(metaInv, metaAdsStatus)} />} />
-          <MetaInvestmentTiles inv={metaInv} onDrill={setDrill} />
-        </DashboardCard>
-      )}
+      <PaidPerformanceTable
+        groups={paidGroups}
+        groupBy={paidGroupBy}
+        onGroupByChange={setPaidGroupBy}
+        includeLost={paidIncludeLost}
+        onIncludeLostChange={setPaidIncludeLost}
+        hasMeta={!!metaInv}
+        costsSuppressed={filtersLabel !== undefined}
+        metaInv={metaInv}
+        status={metaAdsStatus}
+        opportunities={opportunities}
+        contacts={contacts}
+        allOpportunities={lookupOpportunities}
+        onDrill={setDrill}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
      
