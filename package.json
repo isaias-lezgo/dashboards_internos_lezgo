@@ -25,6 +25,7 @@
     "verify:meta-attribution": "tsx scripts/verify-meta-attribution.ts",
     "verify:pmi": "tsx scripts/verify-pmi.ts",
     "verify:pmi-ledger": "tsx --env-file-if-exists=.env.local scripts/verify-pmi-ledger.ts",
+    "verify:paid-performance": "tsx scripts/verify-paid-performance.ts",
     "add-client": "tsx scripts/add-client.ts",
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
   },
