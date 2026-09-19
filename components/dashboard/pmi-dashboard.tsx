@@ -2,21 +2,23 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts"
+import { CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from "recharts"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
 import { cn } from "@/lib/utils"
 import type { Appointment, Call, Contact, Message, Opportunity, Pauta, Task } from "@/lib/types"
 import {
   buildPmiMonth, buildPmiYear, currentMonth, monthLabel, shiftMonth, semaphore, PMI_OBJECTIVES,
-  type PmiIndicator, type PmiRankingRow, type PmiSlice, type PmiWeek,
+  type PmiIndicator, type PmiSlice, type PmiWeek,
 } from "@/lib/pmi"
 import {
-  DashboardShell, DashboardCard, ChartCardHeader, ChartCardContent, ChartEmpty, ScopePill,
-  NonZeroTooltipContent, CHART_TICK, CHART_GRID_STROKE, STRUCTURAL_NAVY, BRAND_AMBER,
+  DashboardShell, DashboardCard, ChartCardHeader, ChartCardContent, ScopePill,
+  NonZeroTooltipContent, CHART_TICK, CHART_GRID_STROKE, STRUCTURAL_NAVY,
 } from "./dashboard-ui"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
-import { ConversionStrip, EstimatedNote, INDICATOR_LABELS, PmiSection, PmiTile, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
+import { AdvisorAvatar, AvatarPaletteProvider, buildAvatarPalette, EstimatedNote, INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
+import { PmiFunnel } from "./pmi-funnel"
+import { PmiRankingChart } from "./pmi-ranking-chart"
 import { PmiWeekTable } from "./pmi-week-table"
 import { PmiAdvisorSheet } from "./pmi-advisor-sheet"
 import { PmiYearView } from "./pmi-year-table"
@@ -49,43 +51,6 @@ export const PMI_RULES = {
 } as const
 
 const COUNT_KEYS = ["leads", "perfilamientos", "citas", "apartados", "cierres"] as const
-
-function RankingChart({
-  title, rows, objective, onBar,
-}: {
-  title: string
-  rows: PmiRankingRow[]
-  objective: number
-  onBar: (name: string) => void
-}) {
-  const data = rows.map((r) => ({ name: r.name, monto: r.monto, count: r.count }))
-  return (
-    <DashboardCard>
-      <ChartCardHeader title={title}
-        actions={<ScopePill label="Meta" tooltip={`La línea marca la meta mensual por asesor: ${fmtMxn(objective)}.`} />} />
-      <ChartCardContent>
-        {data.length === 0 ? (
-          <ChartEmpty message="Sin asesores con actividad en el mes." />
-        ) : (
-          <ChartContainer config={{ monto: { label: "Monto" } }} className="h-[220px] w-full">
-            <BarChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid vertical={false} stroke={CHART_GRID_STROKE} />
-              <XAxis dataKey="name" tick={CHART_TICK} axisLine={false} tickLine={false} interval={0}
-                tickFormatter={(v: string) => v.split(" ")[0]} />
-              <YAxis tick={CHART_TICK} axisLine={false} tickLine={false} width={64}
-                tickFormatter={(v: number) => `$${(v / 1_000_000).toLocaleString("es-MX", { maximumFractionDigits: 1 })}M`} />
-              <ReferenceLine y={objective} stroke={BRAND_AMBER} strokeDasharray="4 4"
-                label={{ value: "META", position: "insideTopRight", fontSize: 10, fill: BRAND_AMBER }} />
-              <ChartTooltip content={<NonZeroTooltipContent formatter={(v) => fmtMxn(Number(v))} />} />
-              <Bar dataKey="monto" name="Monto" fill={STRUCTURAL_NAVY} radius={[4, 4, 0, 0]} cursor="pointer"
-                onClick={(d: { name?: string }) => { if (d?.name) onBar(String(d.name)) }} />
-            </BarChart>
-          </ChartContainer>
-        )}
-      </ChartCardContent>
-    </DashboardCard>
-  )
-}
 
 function WeekTrend({ title, weeks, values, onPoint }: { title: string; weeks: PmiWeek[]; values: number[]; onPoint: (i: number) => void }) {
   const data = weeks.map((w, i) => ({ label: `Semana ${i + 1}`, value: values[i], index: i }))
@@ -131,6 +96,12 @@ export function PmiDashboard(props: PmiDashboardProps) {
   const slice: PmiSlice = selected ?? pmi.team
 
   const contactById = useMemo(() => new Map(contacts.map((c) => [c.id, c])), [contacts])
+  // Sobre TODOS los nombres del proyecto, no los del mes: así el color de un
+  // asesor es el mismo en cualquier mes, trimestre o año.
+  const avatarPalette = useMemo(
+    () => buildAvatarPalette([...contacts, ...opportunities, ...appointments].flatMap((r) => (r.assignedTo?.trim() ? [r.assignedTo.trim()] : []))),
+    [contacts, opportunities, appointments],
+  )
   const oppById = useMemo(() => new Map(opportunities.map((o) => [o.id, o])), [opportunities])
 
   // Un solo camino de drill: por indicador, con los ids que el motor guardó.
@@ -162,11 +133,20 @@ export function PmiDashboard(props: PmiDashboardProps) {
 
   const periodTitle = view === "year" ? String(year) : monthLabel(month)
   const scopeTitle = selected ? selected.name : "Equipo"
-  const o = slice.objectives.month
-  const t = slice.total
-  const avance = (value: number, objective: number) => (objective > 0 ? value / objective : null)
+
+  // Las mismas dos tendencias en los dos sitios donde viven: junto al embudo
+  // del asesor, o abajo del todo en la vista de equipo.
+  const weekTrends = (
+    <>
+      <WeekTrend title="Perfilamientos por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.perfilamientos)}
+        onPoint={(i) => { const ids = slice.byWeek[i].ids.perfilamientos; if (ids.length) openDrill("perfilamientos", ids, `Perfilamientos · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
+      <WeekTrend title="Citas efectivas por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.citas)}
+        onPoint={(i) => { const ids = slice.byWeek[i].ids.citas; if (ids.length) openDrill("citas", ids, `Citas efectivas · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
+    </>
+  )
 
   return (
+    <AvatarPaletteProvider value={avatarPalette}>
     <DashboardShell>
       {/* Cabecera propia: el PMI es mensual por construcción, la barra global no aplica */}
       <div className="flex flex-wrap items-center gap-2">
@@ -195,7 +175,7 @@ export function PmiDashboard(props: PmiDashboardProps) {
               <button key={name} type="button" onClick={() => setAdvisor(name)}
                 className={cn("rounded-full border px-3 py-1 font-medium transition-colors",
                   advisor === name ? "border-primary/40 bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground")}>
-                {name === TEAM ? "Equipo" : name}
+                {name === TEAM ? "Equipo" : <span className="flex items-center gap-1.5"><AdvisorAvatar name={name} className="h-4 w-4 text-[8px]" />{name}</span>}
               </button>
             ))}
           </div>
@@ -208,31 +188,23 @@ export function PmiDashboard(props: PmiDashboardProps) {
       {view === "month" && (
         <>
           <EstimatedNote count={pmi.estimatedCount} />
-          <PmiSection title={`${scopeTitle} · ${monthLabel(month)}`}
-            hint={<ScopePill label="Objetivos" tooltip="Objetivos fijos por asesor y mes: leads 40, perfilamientos 16, citas 8, apartados 2 / $3M, cierres 2 / $3M. El equipo suma un objetivo por asesor con actividad en el mes." />}>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-              <PmiTile label="Leads" value={fmtInt(t.leads)} sub={`${fmtInt(t.leadsPauta)} de pauta`}
-                objective={fmtInt(o.leads)} avance={avance(t.leads, o.leads)}
-                onClick={() => openDrill("leads", t.ids.leads, `Leads · ${scopeTitle}`, monthLabel(month))} />
-              <PmiTile label="Perfilamientos" value={fmtInt(t.perfilamientos)}
-                objective={fmtInt(o.perfilamientos)} avance={avance(t.perfilamientos, o.perfilamientos)}
-                onClick={() => openDrill("perfilamientos", t.ids.perfilamientos, `Perfilamientos · ${scopeTitle}`, monthLabel(month))} />
-              <PmiTile label="Citas efectivas" value={fmtInt(t.citas)}
-                objective={fmtInt(o.citas)} avance={avance(t.citas, o.citas)}
-                onClick={() => openDrill("citas", t.ids.citas, `Citas efectivas · ${scopeTitle}`, monthLabel(month))} />
-              <PmiTile label="Apartados" value={fmtInt(t.apartados)} sub={fmtMxn(t.montoApartados)}
-                objective={`${fmtInt(o.apartados)} · ${fmtMxn(o.montoApartados)}`} avance={avance(t.montoApartados, o.montoApartados)}
-                onClick={() => openDrill("apartados", t.ids.apartados, `Apartados · ${scopeTitle}`, monthLabel(month))} />
-              <PmiTile label="Cierres" value={fmtInt(t.cierres)} sub={fmtMxn(t.montoCierres)}
-                objective={`${fmtInt(o.cierres)} · ${fmtMxn(o.montoCierres)}`} avance={avance(t.montoCierres, o.montoCierres)}
-                onClick={() => openDrill("cierres", t.ids.cierres, `Cierres · ${scopeTitle}`, monthLabel(month))} />
+          {/* Embudo a la izquierda; a la derecha lo que la hoja del Excel pone
+              junto a él: los rankings del equipo, o las tendencias semanales del
+              asesor cuando hay uno elegido. */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <PmiFunnel slice={slice} scopeTitle={scopeTitle} advisorName={selected?.name}
+              onStage={(kind, ids) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${scopeTitle}`, monthLabel(month))} />
+            <div className="grid gap-4">
+              {advisor === TEAM ? (
+                <>
+                  <PmiRankingChart title="Ranking de apartados" rows={pmi.rankingApartados} objective={PMI_OBJECTIVES.montoApartados} empty="Sin apartados en el mes."
+                    onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.apartados > 0) openDrill("apartados", a.total.ids.apartados, `Apartados · ${name}`, monthLabel(month)) }} />
+                  <PmiRankingChart title="Ranking de cierres" rows={pmi.rankingCierres} objective={PMI_OBJECTIVES.montoCierres} empty="Sin cierres en el mes."
+                    onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `Cierres · ${name}`, monthLabel(month)) }} />
+                </>
+              ) : weekTrends}
             </div>
-          </PmiSection>
-
-          <PmiSection title="Conversiones"
-            hint={<ScopePill label="Metas" tooltip="Metas de conversión del PMI: 40 % / 60 % / 75 % / 100 %. Sin denominador la conversión se muestra como —, no como 0 %." />}>
-            <ConversionStrip conversions={slice.conversions} />
-          </PmiSection>
+          </div>
           {selected && (
             <PmiAdvisorSheet slice={selected} weeks={pmi.weeks} days={pmi.days} today={pmi.today}
               onCell={(kind, ids, dayLabel) => openDrill(kind, ids, `${INDICATOR_LABELS[kind]} · ${selected.name}`, dayLabel)} />
@@ -272,7 +244,12 @@ export function PmiDashboard(props: PmiDashboardProps) {
                           <tr key={a.name}
                             className={cn("border-t border-border/60", clickable && "cursor-pointer hover:bg-primary/5")}
                             onClick={clickable ? () => setAdvisor(a.name) : undefined}>
-                            <td className="py-1.5 pr-2 font-medium">{a.name}</td>
+                            <td className="py-1.5 pr-2 font-medium">
+                              <span className="flex items-center gap-2">
+                                {clickable && <AdvisorAvatar name={a.name} className="h-5 w-5 text-[9px]" />}
+                                {a.name}
+                              </span>
+                            </td>
                             {COUNT_KEYS.map((k) => (
                               <td key={k} className="py-1 px-1 text-right">
                                 <span className={cn("inline-block rounded px-1.5 py-0.5", toneClass(semaphore(a.total[k], a.objectives.month[k])))}>{fmtInt(a.total[k])}</span>
@@ -294,21 +271,7 @@ export function PmiDashboard(props: PmiDashboardProps) {
             </DashboardCard>
           )}
 
-          {advisor === TEAM && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <RankingChart title="Ranking de apartados" rows={pmi.rankingApartados} objective={PMI_OBJECTIVES.montoApartados}
-                onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.apartados > 0) openDrill("apartados", a.total.ids.apartados, `Apartados · ${name}`, monthLabel(month)) }} />
-              <RankingChart title="Ranking de cierres" rows={pmi.rankingCierres} objective={PMI_OBJECTIVES.montoCierres}
-                onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `Cierres · ${name}`, monthLabel(month)) }} />
-            </div>
-          )}
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <WeekTrend title="Perfilamientos por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.perfilamientos)}
-              onPoint={(i) => { const ids = slice.byWeek[i].ids.perfilamientos; if (ids.length) openDrill("perfilamientos", ids, `Perfilamientos · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
-            <WeekTrend title="Citas efectivas por semana" weeks={pmi.weeks} values={slice.byWeek.map((c) => c.citas)}
-              onPoint={(i) => { const ids = slice.byWeek[i].ids.citas; if (ids.length) openDrill("citas", ids, `Citas efectivas · ${scopeTitle}`, `Semana ${i + 1} · ${monthLabel(month)}`) }} />
-          </div>
+          {advisor === TEAM && <div className="grid gap-4 lg:grid-cols-2">{weekTrends}</div>}
         </>
       )}
 
@@ -332,6 +295,7 @@ export function PmiDashboard(props: PmiDashboardProps) {
         locationId={locationId}
       />
     </DashboardShell>
+    </AvatarPaletteProvider>
   )
 }
 
