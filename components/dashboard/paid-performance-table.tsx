@@ -13,8 +13,8 @@
 // Spec: docs/superpowers/specs/2026-09-19-pauta-rendimiento-unificado-design.md
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Coins, Search, Facebook, Instagram, Link2 } from "lucide-react"
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Coins, Columns3, Search, Facebook, Instagram, Link2 } from "lucide-react"
 import {
   ChartCardHeader,
   ChartEmpty,
@@ -26,6 +26,9 @@ import {
   TopNSlider,
 } from "@/components/dashboard/dashboard-ui"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import type { DrillState } from "@/components/dashboard/chart-drill-drawer"
 import type { Contact, MetaAdsStatus, Opportunity } from "@/lib/types"
 import {
@@ -36,6 +39,7 @@ import {
   type PaidGroupBy,
   type PaidPerformanceInput,
   type PaidRow,
+  type StageCount,
 } from "@/lib/paid-performance"
 import { isWonOpp } from "@/lib/opportunity-status"
 import { MetaInvestmentTiles, metaScopeNote, money, pct, type MetaInvestment } from "./meta-investment-section"
@@ -96,7 +100,7 @@ function shortUrl(href: string): string {
 }
 
 function fold(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
 }
 
 // ── Controles ───────────────────────────────────────────────────────────────
@@ -133,6 +137,140 @@ function SwitchButton({ label, on, onChange }: { label: string; on: boolean; onC
   )
 }
 
+// ── Columnas visibles ───────────────────────────────────────────────────────
+// Conveniencia por navegador (localStorage), no estado del negocio: si la
+// lectura falla —modo privado, datos borrados— se usan los defaults y ya.
+
+const COLS_STORAGE_KEY = "paid-performance-cols"
+
+function defaultColumns(): Set<PaidColumnId> {
+  return new Set(PAID_COLUMNS.filter((c) => c.defaultOn).map((c) => c.id))
+}
+
+function readStoredColumns(): Set<PaidColumnId> | null {
+  try {
+    const raw = window.localStorage.getItem(COLS_STORAGE_KEY)
+    if (!raw) return null
+    const ids = new Set<string>(PAID_COLUMNS.map((c) => c.id))
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return new Set(parsed.filter((x): x is PaidColumnId => typeof x === "string" && ids.has(x)))
+  } catch {
+    return null
+  }
+}
+
+function useVisibleColumns(showMeta: boolean): [Set<PaidColumnId>, (next: Set<PaidColumnId>) => void] {
+  const [chosen, setChosen] = useState<Set<PaidColumnId>>(defaultColumns)
+  // Hidratar desde localStorage después del primer render: el servidor no lo tiene.
+  useEffect(() => {
+    const stored = readStoredColumns()
+    if (stored) setChosen(stored)
+  }, [])
+  const set = (next: Set<PaidColumnId>) => {
+    setChosen(next)
+    try {
+      window.localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(Array.from(next)))
+    } catch {
+      /* sin memoria en este navegador: la sesión sigue */
+    }
+  }
+  // Sin Meta las columnas de Meta no existen aunque estén elegidas.
+  const visible = useMemo(
+    () => new Set(Array.from(chosen).filter((id) => showMeta || !PAID_COLUMNS.find((c) => c.id === id)?.meta)),
+    [chosen, showMeta]
+  )
+  return [visible, set]
+}
+
+const GROUP_LABELS: Record<(typeof PAID_COLUMNS)[number]["group"], string> = {
+  inversion: "Inversión",
+  leads: "Leads y costo",
+  citas: "Citas",
+  etapas: "Etapas",
+}
+
+function ColumnEditor({ showMeta, value, onChange }: { showMeta: boolean; value: Set<PaidColumnId>; onChange: (next: Set<PaidColumnId>) => void }) {
+  const groupsInOrder = ["inversion", "leads", "citas", "etapas"] as const
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+          <Columns3 className="h-3.5 w-3.5" /> Columnas
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-3">
+        {groupsInOrder.map((g) => {
+          const cols = PAID_COLUMNS.filter((c) => c.group === g && (showMeta || !c.meta))
+          if (cols.length === 0) return null
+          return (
+            <div key={g} className="mb-3 last:mb-0">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{GROUP_LABELS[g]}</p>
+              {cols.map((c) => (
+                <label key={c.id} className="flex cursor-pointer items-center gap-2 py-0.5 text-xs">
+                  <Checkbox
+                    checked={value.has(c.id)}
+                    onCheckedChange={(on) => {
+                      const next = new Set(value)
+                      if (on) next.add(c.id)
+                      else next.delete(c.id)
+                      onChange(next)
+                    }}
+                  />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+          )
+        })}
+        <button type="button" className="mt-1 text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => onChange(defaultColumns())}>
+          Restablecer
+        </button>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── Barra de etapas ─────────────────────────────────────────────────────────
+// Segmentos proporcionales en orden del pipeline: el primario con opacidad
+// creciente conforme la etapa avanza (no requiere leyenda: el hover dice la
+// etapa y la cuenta), y las perdidas en rojo apagado al final. El ancho es
+// relativo a la fila — los números absolutos van en las columnas de al lado.
+
+function stageStyle(index: number, live: number, lost: boolean): CSSProperties {
+  if (lost) return { backgroundColor: "rgb(239 68 68 / 0.45)" }
+  const t = live <= 1 ? 1 : index / (live - 1)
+  return { backgroundColor: `hsl(var(--primary) / ${(0.3 + 0.7 * t).toFixed(2)})` }
+}
+
+function StageBar({ stages, onSegmentClick }: { stages: StageCount[]; onSegmentClick: (s: StageCount) => void }) {
+  const total = stages.reduce((a, s) => a + s.count, 0)
+  if (total === 0) return null
+  const live = stages.filter((s) => !s.lost).length
+  return (
+    <TooltipProvider delayDuration={80}>
+      <div className="flex h-3 w-full overflow-hidden rounded-sm bg-muted/30" role="img" aria-label={stages.map((s) => `${s.stage} ${s.count}`).join(" · ")}>
+        {stages.map((s, i) => (
+          <Tooltip key={s.stage}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="h-full min-w-[3px] transition-opacity hover:opacity-80"
+                style={{ width: `${(s.count / total) * 100}%`, ...stageStyle(i, live, s.lost) }}
+                onClick={(e) => { e.stopPropagation(); onSegmentClick(s) }}
+                aria-label={`${s.stage}: ${s.count}`}
+              />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {s.stage} · {s.count.toLocaleString("es-MX")}
+            </TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+    </TooltipProvider>
+  )
+}
+
 // ── Tabla ───────────────────────────────────────────────────────────────────
 
 export interface PaidPerformanceTableProps {
@@ -164,11 +302,7 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
   const [topN, setTopN] = useState(15)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [sort, setSort] = useState<Sort | null>(null)
-  // Task 6 conecta el editor; hasta entonces, las columnas por defecto.
-  const visibleCols = useMemo(
-    () => new Set(PAID_COLUMNS.filter((c) => c.defaultOn && (showMeta || !c.meta)).map((c) => c.id)),
-    [showMeta]
-  )
+  const [visibleCols, setVisibleCols] = useVisibleColumns(showMeta)
 
   const effectiveSort: Sort = sort ?? { key: showMeta ? "spend" : "opportunities", dir: "desc" }
 
@@ -259,7 +393,13 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
       case "won": return numberButton(int(row.won), () => drillOpps(row, "Ganadas", oppsOf(row.oppIds).filter(isWonOpp).map((o) => o.id)))
       case "appointments": return numberButton(int(row.appointments), () => drillAppointments(row, "Contactos con cita", false))
       case "showed": return numberButton(int(row.showed), () => drillAppointments(row, "Citas efectivas", true))
-      case "stages": return null // Task 7
+      case "stages":
+        return (
+          <StageBar
+            stages={row.stages}
+            onSegmentClick={(s) => drillOpps(row, s.stage, oppsOf(row.oppIds).filter((o) => o.stage === s.stage).map((o) => o.id), `${row.label} · ${s.count} en ${s.stage}`)}
+          />
+        )
     }
   }
 
@@ -357,7 +497,7 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
           {allExpanded ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
           {allExpanded ? "Colapsar" : "Expandir"}
         </button>
-        {/* Task 6: <ColumnEditor … /> */}
+        <ColumnEditor showMeta={showMeta} value={visibleCols} onChange={setVisibleCols} />
       </div>
 
       {groups.length === 0 ? (
