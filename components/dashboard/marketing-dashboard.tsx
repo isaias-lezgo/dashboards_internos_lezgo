@@ -20,7 +20,7 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart"
 import type { Opportunity, Contact, Pauta, Task, Call, Appointment, Pipeline } from "@/lib/types"
-import { Tag, FileText, Calendar, BarChart3, Layers, TrendingUp, TrendingDown, Facebook, Instagram, Copy, Check, ExternalLink, ListFilter } from "lucide-react"
+import { Tag, FileText, Calendar, BarChart3, Layers, TrendingUp, TrendingDown, Facebook, Instagram, ListFilter } from "lucide-react"
 import { PLATFORM_COLORS, PLATFORM_ORDER, platformLabel, originSignalText, hasGoogleAdsSignal, hasWebsiteSignal } from "@/lib/source-platform"
 import {
   isPaidTraffic,
@@ -58,6 +58,8 @@ import {
   MarketingSummaryStrip,
   TopNSlider,
   NonZeroTooltipContent,
+  CopyButton,
+  LinkButton,
   PlatformIcon,
 } from "./dashboard-ui"
 import {
@@ -295,39 +297,6 @@ function platformFromContact(c?: Contact): string {
   // WhatsApp is a contact channel, not a lead origin — see platformLabel() in
   // lib/source-platform.ts. WhatsApp-attributed contacts fall through to "Otro".
   return "Otro"
-}
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      className="ml-1.5 inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-      onClick={(e) => {
-        e.stopPropagation()
-        navigator.clipboard.writeText(value)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-      title={`Copiar: ${value}`}
-    >
-      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-    </button>
-  )
-}
-
-function LinkButton({ value }: { value: string }) {
-  return (
-    <a
-      href={value}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="ml-1.5 inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-      title={value}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <ExternalLink className="h-3 w-3" />
-    </a>
-  )
 }
 
 type PaidGroupBy = "campaign" | "url" | "id" | "platform"

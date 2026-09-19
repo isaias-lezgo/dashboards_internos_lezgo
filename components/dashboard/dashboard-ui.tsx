@@ -1,8 +1,8 @@
 "use client"
 
-import type { ComponentProps, ReactNode } from "react"
+import { useState, type ComponentProps, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { AlertTriangle, Facebook, Instagram, Globe, Info, Target, Megaphone, Layers3 } from "lucide-react"
+import { AlertTriangle, Check, Copy, ExternalLink, Facebook, Instagram, Globe, Info, Target, Megaphone, Layers3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartTooltipContent } from "@/components/ui/chart"
@@ -470,5 +470,42 @@ export function TopNSlider({ value, max, onChange, disabled = false }: { value: 
         className="h-1 w-20 cursor-pointer accent-primary disabled:cursor-not-allowed"
       />
     </div>
+  )
+}
+
+// ── Acciones en línea para ids y ligas ──────────────────────────────────────
+// Copiar y abrir, con stopPropagation para no disparar el drill de la fila.
+
+export function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      className="ml-1.5 inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+      onClick={(e) => {
+        e.stopPropagation()
+        navigator.clipboard.writeText(value)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      title={`Copiar: ${value}`}
+    >
+      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+    </button>
+  )
+}
+
+export function LinkButton({ value }: { value: string }) {
+  return (
+    <a
+      href={value}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="ml-1.5 inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+      title={value}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <ExternalLink className="h-3 w-3" />
+    </a>
   )
 }
