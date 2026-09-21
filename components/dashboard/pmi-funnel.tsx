@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { PMI_CONVERSION_TARGETS, semaphore, type PmiConversions, type PmiIndicator, type PmiSlice } from "@/lib/pmi"
+import { PMI_CONVERSION_TARGETS, semaphore, type PmiConversions, type PmiCounts, type PmiIndicator, type PmiObjectives } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
 import { AdvisorAvatar, INDICATOR_LABELS, conversionTone, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
 
@@ -42,17 +42,23 @@ function fillClass(tone: ReturnType<typeof semaphore>): string {
   }
 }
 
+// El embudo no sabe si el período es un mes o un trimestre: recibe el total,
+// el objetivo del período y las conversiones, y `periodNote` dice de dónde
+// salió ese objetivo.
 export function PmiFunnel({
-  slice, scopeTitle, advisorName, onStage,
+  total, objective, conversions: conv, periodNote, scopeTitle, advisorName, onStage,
 }: {
-  slice: PmiSlice
+  total: PmiCounts
+  objective: PmiObjectives
+  conversions: PmiConversions
+  periodNote: string
   scopeTitle: string
   /** Con nombre se dibuja su avatar en la cabecera: el embudo es de una persona. */
   advisorName?: string
   onStage: (kind: PmiIndicator, ids: string[]) => void
 }) {
-  const t = slice.total
-  const o = slice.objectives.month
+  const t = total
+  const o = objective
   const money = (kind: PmiIndicator) => (kind === "apartados" ? t.montoApartados : kind === "cierres" ? t.montoCierres : null)
   const moneyObjective = (kind: PmiIndicator) => (kind === "apartados" ? o.montoApartados : kind === "cierres" ? o.montoCierres : null)
 
@@ -64,7 +70,7 @@ export function PmiFunnel({
           <>
             {advisorName && <AdvisorAvatar name={advisorName} className="h-7 w-7 text-[11px]" />}
             <ScopePill label="Objetivos"
-              tooltip="Objetivos fijos por asesor y mes: leads 40, perfilamientos 16, citas 8, apartados 2 / $3M, cierres 2 / $3M. El equipo suma un objetivo por asesor con actividad en el mes. El relleno de cada escalón es el avance contra ese objetivo (en apartados y cierres, por monto)." />
+              tooltip={`Objetivos fijos por asesor y mes: leads 40, perfilamientos 16, citas 8, apartados 2 / $3M, cierres 2 / $3M. ${periodNote} El relleno de cada escalón es el avance contra ese objetivo (en apartados y cierres, por monto).`} />
           </>
         }
       />
@@ -82,7 +88,7 @@ export function PmiFunnel({
             const avance = objective > 0 ? measured / objective : null
             const tone = avance === null ? null : semaphore(avance, 1)
             const fillPct = avance === null ? 0 : Math.min(1, avance) * 100
-            const conv = conversion ? slice.conversions[conversion] : null
+            const convValue = conversion ? conv[conversion] : null
             const convTarget = conversion ? PMI_CONVERSION_TARGETS[conversion] : 0
             return (
               <li key={kind} className="flex w-full flex-col items-center gap-1">
@@ -121,7 +127,7 @@ export function PmiFunnel({
                   <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <ChevronDown className="h-3 w-3" aria-hidden />
                     <span>{CONVERSION_SHORT[conversion]}</span>
-                    <span className={cn("rounded px-1.5 py-px font-semibold tabular-nums", toneClass(conversionTone(conv, convTarget)))}>{fmtPct(conv)}</span>
+                    <span className={cn("rounded px-1.5 py-px font-semibold tabular-nums", toneClass(conversionTone(convValue, convTarget)))}>{fmtPct(convValue)}</span>
                     <span>meta {fmtPct(convTarget)}</span>
                   </span>
                 )}

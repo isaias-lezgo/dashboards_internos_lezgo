@@ -4,13 +4,16 @@
 // analyze-report como en los otros dos.
 import type { ReportInput, ReportSection } from "./report";
 import {
-  PMI_CONVERSION_TARGETS, PMI_OBJECTIVES, monthLabel, semaphore,
-  type PmiAdvisor, type PmiIndicator, type PmiMonth, type PmiSlice, type PmiTone, type PmiYear,
+  PMI_CONVERSION_TARGETS, PMI_OBJECTIVES, monthLabel, quarterLabel, semaphore,
+  type PmiAdvisor, type PmiConversions, type PmiCounts, type PmiIndicator, type PmiMonth, type PmiObjectives,
+  type PmiQuarterAdvisor, type PmiQuarterDetail, type PmiQuarterSlice, type PmiSlice, type PmiTone, type PmiYear,
 } from "./pmi";
 
 export type PmiReportVariant =
   | { kind: "month-team"; pmi: PmiMonth }
   | { kind: "month-advisor"; pmi: PmiMonth; advisor: PmiAdvisor }
+  | { kind: "quarter-team"; quarter: PmiQuarterDetail }
+  | { kind: "quarter-advisor"; quarter: PmiQuarterDetail; advisor: PmiQuarterAdvisor }
   | { kind: "year"; year: PmiYear };
 
 const mxn = (v: number) => v.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
@@ -26,14 +29,13 @@ const COUNT_ROWS: [string, PmiIndicator][] = [
 ];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-function kpisOf(s: PmiSlice) {
-  const o = s.objectives.month;
+function kpisOf(total: PmiCounts, o: PmiObjectives) {
   return [
-    { label: "Leads", value: `${int(s.total.leads)} / ${int(o.leads)}` },
-    { label: "Perfilamientos", value: `${int(s.total.perfilamientos)} / ${int(o.perfilamientos)}` },
-    { label: "Citas efectivas", value: `${int(s.total.citas)} / ${int(o.citas)}` },
-    { label: "Apartados", value: `${int(s.total.apartados)} · ${mxn(s.total.montoApartados)}` },
-    { label: "Cierres", value: `${int(s.total.cierres)} · ${mxn(s.total.montoCierres)}` },
+    { label: "Leads", value: `${int(total.leads)} / ${int(o.leads)}` },
+    { label: "Perfilamientos", value: `${int(total.perfilamientos)} / ${int(o.perfilamientos)}` },
+    { label: "Citas efectivas", value: `${int(total.citas)} / ${int(o.citas)}` },
+    { label: "Apartados", value: `${int(total.apartados)} · ${mxn(total.montoApartados)}` },
+    { label: "Cierres", value: `${int(total.cierres)} · ${mxn(total.montoCierres)}` },
   ];
 }
 
@@ -71,8 +73,7 @@ function weekSection(s: PmiSlice, pmi: PmiMonth): ReportSection {
   };
 }
 
-function conversionsSection(s: PmiSlice): ReportSection {
-  const c = s.conversions;
+function conversionsSection(c: PmiConversions): ReportSection {
   return {
     id: "conversiones",
     title: "Conversiones del embudo",
@@ -194,11 +195,12 @@ function yearReport(y: PmiYear, locationName?: string): ReportInput {
 
 export function buildPmiReport(v: PmiReportVariant, locationName?: string): ReportInput {
   if (v.kind === "year") return yearReport(v.year, locationName);
+  if (v.kind === "quarter-team" || v.kind === "quarter-advisor") return quarterReport(v, locationName);
 
   const { pmi } = v;
   const slice: PmiSlice = v.kind === "month-advisor" ? v.advisor : pmi.team;
   const scope = v.kind === "month-advisor" ? v.advisor.name : "Equipo";
-  const sections: ReportSection[] = [weekSection(slice, pmi), conversionsSection(slice)];
+  const sections: ReportSection[] = [weekSection(slice, pmi), conversionsSection(slice.conversions)];
 
   if (v.kind === "month-team") {
     sections.push({
@@ -242,7 +244,108 @@ export function buildPmiReport(v: PmiReportVariant, locationName?: string): Repo
     locationName,
     periodLabel: cutoff === null ? monthLabel(pmi.month) : `${monthLabel(pmi.month)} (al día ${cutoff}, mes en curso)`,
     filtersLabel: v.kind === "month-advisor" ? `Asesor: ${v.advisor.name}` : undefined,
-    kpis: kpisOf(slice),
+    kpis: kpisOf(slice.total, slice.objectives.month),
+    sections,
+  };
+}
+
+// ── Trimestre ───────────────────────────────────────────────────────────────
+// El espejo del reporte mensual con meses en lugar de semanas.
+
+function quarterCutoff(qd: PmiQuarterDetail): string | null {
+  if (!qd.months.includes(qd.today.slice(0, 7))) return null;
+  return `${Number(qd.today.slice(8))} de ${MONTHS[Number(qd.today.slice(5, 7)) - 1]}`;
+}
+
+function monthSection(s: PmiQuarterSlice, qd: PmiQuarterDetail, advisor: boolean): ReportSection {
+  const o = s.objectives.quarter;
+  const cutoff = quarterCutoff(qd);
+  const isFuture = (i: number) => `${qd.months[i]}-01` > qd.today;
+  const cell = (i: number, v: string) => (isFuture(i) ? "—" : v);
+  const labels = qd.months.map((m) => MONTHS[Number(m.slice(5, 7)) - 1]);
+  return {
+    id: "meses",
+    title: "Indicadores por mes",
+    explanation:
+      "Cada indicador por mes del trimestre, con el total, el objetivo del trimestre y el avance. " +
+      (advisor
+        ? "El objetivo del trimestre es el mensual por cada mes con actividad del asesor."
+        : "El objetivo del trimestre suma, por cada mes, un objetivo mensual por asesor con actividad.") +
+      " Superó ≥ 180 %, Alcanzó ≥ 100 %, Se acercó ≥ 75 %." +
+      (cutoff !== null
+        ? ` El trimestre está en curso (datos al ${cutoff}): los meses marcados con — no han ocurrido y el objetivo del trimestre todavía no es exigible completo.`
+        : ""),
+    blocks: [{
+      t: "table",
+      headers: ["Indicador", ...labels, "Total", "Objetivo", "Avance", "Semáforo"],
+      rows: [
+        ...COUNT_ROWS.map(([label, k]) => [
+          label, ...s.byMonth.map((c, i) => cell(i, int(c[k]))), int(s.total[k]), int(o[k]), avance(s.total[k], o[k]), toneWord(semaphore(s.total[k], o[k])),
+        ]),
+        ["Monto de apartados", ...s.byMonth.map((c, i) => cell(i, mxn(c.montoApartados))), mxn(s.total.montoApartados), mxn(o.montoApartados), avance(s.total.montoApartados, o.montoApartados), toneWord(semaphore(s.total.montoApartados, o.montoApartados))],
+        ["Monto de cierres", ...s.byMonth.map((c, i) => cell(i, mxn(c.montoCierres))), mxn(s.total.montoCierres), mxn(o.montoCierres), avance(s.total.montoCierres, o.montoCierres), toneWord(semaphore(s.total.montoCierres, o.montoCierres))],
+      ],
+    }],
+  };
+}
+
+function monthTrendSection(s: PmiQuarterSlice, qd: PmiQuarterDetail): ReportSection {
+  const started = qd.months.map((_, i) => i).filter((i) => `${qd.months[i]}-01` <= qd.today);
+  return {
+    id: "tendencia",
+    title: "Perfilamientos y citas efectivas por mes",
+    explanation:
+      "Actividad de productividad mes a mes: cuántos perfilamientos y cuántas citas efectivas hubo en cada uno." +
+      (started.length < qd.months.length ? " Solo se grafican los meses que ya empezaron." : ""),
+    blocks: [{
+      t: "chart", type: "line", valueLabel: "Registros",
+      categories: started.map((i) => MONTHS[Number(qd.months[i].slice(5, 7)) - 1]),
+      series: [
+        { name: "Perfilamientos", values: started.map((i) => s.byMonth[i].perfilamientos) },
+        { name: "Citas efectivas", values: started.map((i) => s.byMonth[i].citas) },
+      ],
+    }],
+  };
+}
+
+function quarterReport(v: Extract<PmiReportVariant, { kind: "quarter-team" | "quarter-advisor" }>, locationName?: string): ReportInput {
+  const qd = v.quarter;
+  const slice: PmiQuarterSlice = v.kind === "quarter-advisor" ? v.advisor : qd.team;
+  const scope = v.kind === "quarter-advisor" ? v.advisor.name : "Equipo";
+  const label = quarterLabel(qd.year, qd.q);
+  const sections: ReportSection[] = [monthSection(slice, qd, v.kind === "quarter-advisor"), conversionsSection(slice.conversions)];
+
+  if (v.kind === "quarter-team") {
+    sections.push({
+      id: "por-asesor",
+      title: "Resultados por asesor",
+      explanation: "Los cinco indicadores y los montos de cada asesor en el trimestre, con sus conversiones.",
+      blocks: [{
+        t: "table",
+        headers: ["Asesor", "Leads", "Perfil.", "Citas", "Apartados", "$ Apartados", "Cierres", "$ Cierres", "L→P", "P→C", "C→A", "A→Ci"],
+        rows: qd.advisors.map((a) => [
+          a.name, int(a.total.leads), int(a.total.perfilamientos), int(a.total.citas), int(a.total.apartados), mxn(a.total.montoApartados),
+          int(a.total.cierres), mxn(a.total.montoCierres), pct(a.conversions.leadPerfil), pct(a.conversions.perfilCita), pct(a.conversions.citaApartado), pct(a.conversions.apartadoCierre),
+        ]),
+      }],
+    });
+    sections.push({
+      id: "ranking",
+      title: "Ranking de apartados",
+      explanation: `Monto apartado por asesor en el trimestre contra la meta de ${mxn(PMI_OBJECTIVES.montoApartados)} por cada mes con actividad.`,
+      blocks: [{ t: "chart", type: "bar", valueLabel: "Monto (MXN)", series: qd.rankingApartados.map((r) => ({ label: r.name, value: r.monto })) }],
+    });
+  }
+  sections.push(monthTrendSection(slice, qd), ...estimatedCallout(qd.estimatedCount));
+
+  const cutoff = quarterCutoff(qd);
+  return {
+    reportType: "pmi",
+    title: `Desempeño · ${scope} · ${label}`,
+    locationName,
+    periodLabel: cutoff === null ? label : `${label} (al ${cutoff}, trimestre en curso)`,
+    filtersLabel: v.kind === "quarter-advisor" ? `Asesor: ${v.advisor.name}` : undefined,
+    kpis: kpisOf(slice.total, slice.objectives.quarter),
     sections,
   };
 }

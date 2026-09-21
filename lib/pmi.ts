@@ -487,20 +487,23 @@ function yearRanking(advisors: PmiYearAdvisor[], kind: "apartados" | "cierres"):
     .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
 }
 
-const QUARTER_LABELS = ["Ene – Mar", "Abr – Jun", "Jul – Sep", "Oct – Dic"] as const;
+export const QUARTER_LABELS = ["Ene – Mar", "Abr – Jun", "Jul – Sep", "Oct – Dic"] as const;
 
 // Solo entran los asesores con actividad en el trimestre: un asesor que no
-// registró nada en tres meses no tiene meta contra la cual medirse.
-function quarterRanking(advisors: PmiYearAdvisor[], q: number, kind: "apartados" | "cierres"): PmiRankingRow[] {
+// registró nada en tres meses no tiene meta contra la cual medirse. Recibe los
+// TRES meses del trimestre de cada asesor; la hoja anual y la vista del
+// trimestre pasan por aquí para que el mismo trimestre dé el mismo ranking.
+function quarterRanking(advisors: { name: string; months: PmiCounts[] }[], kind: "apartados" | "cierres"): PmiRankingRow[] {
   const montoKey = kind === "apartados" ? "montoApartados" : "montoCierres";
   return advisors
-    .filter((a) => hasActivity(a.byQuarter[q]))
-    .map((a) => {
-      const monto = a.byQuarter[q][montoKey];
-      const mesesActivo = a.byMonth.slice(q * 3, q * 3 + 3).filter(hasActivity).length;
-      return { name: a.name, monto, count: a.byQuarter[q][kind], avance: ratio(monto, PMI_OBJECTIVES[montoKey] * mesesActivo) };
-    })
+    .map((a) => ({ name: a.name, total: sumCounts(a.months), mesesActivo: a.months.filter(hasActivity).length }))
+    .filter((a) => hasActivity(a.total))
+    .map((a) => ({ name: a.name, monto: a.total[montoKey], count: a.total[kind], avance: ratio(a.total[montoKey], PMI_OBJECTIVES[montoKey] * a.mesesActivo) }))
     .sort((x, y) => y.monto - x.monto || y.count - x.count || x.name.localeCompare(y.name));
+}
+
+function quarterMonthsOf(advisors: PmiYearAdvisor[], q: number): { name: string; months: PmiCounts[] }[] {
+  return advisors.map((a) => ({ name: a.name, months: a.byMonth.slice(q * 3, q * 3 + 3) }));
 }
 
 function buildQuarters(advisors: PmiYearAdvisor[], teamByQuarter: PmiCounts[], activeByMonth: number[]): PmiQuarter[] {
@@ -511,8 +514,8 @@ function buildQuarters(advisors: PmiYearAdvisor[], teamByQuarter: PmiCounts[], a
       label: QUARTER_LABELS[q],
       team: teamByQuarter[q],
       objectives: activeMonths > 0 ? scaleObjectives(PMI_OBJECTIVES, activeMonths) : null,
-      rankingApartados: quarterRanking(advisors, q, "apartados"),
-      rankingCierres: quarterRanking(advisors, q, "cierres"),
+      rankingApartados: quarterRanking(quarterMonthsOf(advisors, q), "apartados"),
+      rankingCierres: quarterRanking(quarterMonthsOf(advisors, q), "cierres"),
     };
   });
 }
@@ -576,5 +579,112 @@ export function buildPmiYear(input: PmiInput, year: number, now: Date = new Date
     rankingApartados: yearRanking(advisors, "apartados"),
     rankingCierres: yearRanking(advisors, "cierres"),
     estimatedCount: events.filter((e) => e.estimated && e.advisor !== UNASSIGNED).length,
+  };
+}
+
+// ── Trimestre ───────────────────────────────────────────────────────────────
+// La vista del trimestre es el espejo de la del mes con meses en lugar de
+// semanas. Los números son los MISMOS que la hoja anual dice de ese trimestre
+// (totales, objetivos y ranking salen del mismo código): un trimestre no puede
+// valer una cosa en "Trimestre" y otra en "Año".
+
+export function quarterOf(month: string): { year: number; q: number } {
+  const [y, m] = month.split("-").map(Number);
+  return { year: y, q: Math.floor((m - 1) / 3) };
+}
+
+export function quarterMonths(year: number, q: number): string[] {
+  return [0, 1, 2].map((i) => `${year}-${pad2(q * 3 + i + 1)}`);
+}
+
+export function quarterLabel(year: number, q: number): string {
+  return `T${q + 1} ${year} · ${QUARTER_LABELS[q]}`;
+}
+
+export interface PmiQuarterSlice {
+  byMonth: PmiCounts[]; // 3
+  total: PmiCounts;
+  // quarter: la meta del período; byMonth: contra qué se semaforiza cada mes.
+  // Asesor: mensual × meses con actividad / mensual. Equipo: Σ (activos del
+  // mes × mensual) / activos del mes × mensual — la regla de PmiYear.quarters.
+  objectives: { quarter: PmiObjectives; byMonth: PmiObjectives[] };
+  conversions: PmiConversions;
+}
+
+export interface PmiQuarterAdvisor extends PmiQuarterSlice {
+  name: string;
+}
+
+export interface PmiQuarterDetail {
+  year: number;
+  q: number; // 0-3
+  label: string; // "Jul – Sep"
+  months: string[]; // YYYY-MM × 3
+  today: string;
+  team: PmiQuarterSlice;
+  advisors: PmiQuarterAdvisor[];
+  unassigned: PmiQuarterSlice | null;
+  activeAdvisors: number;
+  rankingApartados: PmiRankingRow[];
+  rankingCierres: PmiRankingRow[];
+  estimatedCount: number;
+}
+
+function quarterSlice(byMonth: PmiCounts[], objectivesByMonth: PmiObjectives[]): PmiQuarterSlice {
+  const total = sumCounts(byMonth);
+  const quarter = objectivesByMonth.reduce((acc, o) => {
+    for (const k of Object.keys(acc) as (keyof PmiObjectives)[]) acc[k] += o[k];
+    return acc;
+  }, scaleObjectives(PMI_OBJECTIVES, 0));
+  return { byMonth, total, objectives: { quarter, byMonth: objectivesByMonth }, conversions: conversions(total) };
+}
+
+export function buildPmiQuarter(input: PmiInput, year: number, q: number, now: Date = new Date()): PmiQuarterDetail {
+  const months = quarterMonths(year, q);
+  const today = localDay(now.toISOString());
+  const lastDays = monthDays(months[2]);
+  const events = collectEvents(input, `${months[0]}-01`, lastDays[lastDays.length - 1]);
+  const monthIndex = (day: string) => months.indexOf(day.slice(0, 7));
+
+  const byAdvisor = new Map<string, PmiCounts[]>();
+  for (const e of events) {
+    let list = byAdvisor.get(e.advisor);
+    if (!list) {
+      list = [emptyCounts(), emptyCounts(), emptyCounts()];
+      byAdvisor.set(e.advisor, list);
+    }
+    addEvent(list[monthIndex(e.day)], e);
+  }
+
+  const names = [...byAdvisor.keys()].filter((n) => n !== UNASSIGNED).sort((a, b) => a.localeCompare(b, "es"));
+  const advisors: PmiQuarterAdvisor[] = names.map((name) => {
+    const byMonth = byAdvisor.get(name)!;
+    const slice = quarterSlice(byMonth, byMonth.map(() => PMI_OBJECTIVES));
+    // La meta del trimestre es por meses con actividad, no ×3 a secas.
+    slice.objectives.quarter = scaleObjectives(PMI_OBJECTIVES, byMonth.filter(hasActivity).length);
+    return { name, ...slice };
+  });
+
+  const teamByMonth = [0, 1, 2].map((i) => sumCounts(advisors.map((a) => a.byMonth[i])));
+  const activeByMonth = [0, 1, 2].map((i) => advisors.filter((a) => hasActivity(a.byMonth[i])).length);
+  const team = quarterSlice(teamByMonth, activeByMonth.map((n) => scaleObjectives(PMI_OBJECTIVES, n)));
+
+  const unassignedMonths = byAdvisor.get(UNASSIGNED);
+  const unassigned = unassignedMonths ? quarterSlice(unassignedMonths, unassignedMonths.map(() => scaleObjectives(PMI_OBJECTIVES, 0))) : null;
+
+  const forRanking = advisors.map((a) => ({ name: a.name, months: a.byMonth }));
+  return {
+    year,
+    q,
+    label: QUARTER_LABELS[q],
+    months,
+    today,
+    team,
+    advisors,
+    unassigned,
+    activeAdvisors: names.length,
+    rankingApartados: quarterRanking(forRanking, "apartados"),
+    rankingCierres: quarterRanking(forRanking, "cierres"),
+    estimatedCount: events.filter((e) => e.estimated).length,
   };
 }

@@ -12,6 +12,7 @@ import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
   monthWeeks, monthDays, semaphore, conversions, collectEvents, emptyCounts, addEvent, sumCounts,
   PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth, buildPmiYear,
+  buildPmiQuarter, quarterOf, quarterMonths, quarterLabel,
 } from "../lib/pmi";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -315,6 +316,80 @@ function yearMain() {
   assert.equal(q4.rankingApartados.length, 0);
 }
 
+function quarterMain() {
+  // El mismo fixture que el año: el trimestre debe dar EXACTAMENTE lo que la
+  // hoja anual ya dice de él, o el mismo trimestre tendría dos números.
+  const input = {
+    contacts: [
+      contact({ id: "a1", assignedTo: "Arely", createdAt: "2026-03-05T15:00:00.000Z" }),
+      contact({ id: "a2", assignedTo: "Arely", createdAt: "2026-09-05T15:00:00.000Z" }),
+      contact({ id: "m1", assignedTo: "Monica", createdAt: "2026-01-05T15:00:00.000Z" }),
+      contact({ id: "x1", assignedTo: undefined, createdAt: "2026-08-05T15:00:00.000Z" }),
+    ],
+    opportunities: [
+      opp({ id: "o1", assignedTo: "Arely", value: 5_967_052.46, stage: "08. Proceso de Escritura",
+        milestones: { perfilado: "2026-05-01T15:00:00.000Z", apartado: "2026-05-10T15:00:00.000Z", cierre: "2026-07-10T15:00:00.000Z" } }),
+      opp({ id: "o2", assignedTo: "Arely", value: 6_497_283.09, stage: "06. Apartado",
+        milestones: { perfilado: "2026-06-01T15:00:00.000Z", apartado: "2026-06-10T15:00:00.000Z" } }),
+      opp({ id: "o3", assignedTo: "Monica", value: 3_145_022.6, stage: "10. Negocio Ganado",
+        milestones: { perfilado: "2025-12-01T15:00:00.000Z", apartado: "2025-12-10T15:00:00.000Z", cierre: "2026-01-20T15:00:00.000Z" } }),
+    ],
+    appointments: [],
+    pautas: [],
+  };
+  const now = new Date("2026-09-15T18:00:00.000Z");
+  const y = buildPmiYear(input, 2026, now);
+
+  // Calendario del trimestre.
+  assert.deepEqual(quarterOf("2026-09"), { year: 2026, q: 2 });
+  assert.deepEqual(quarterOf("2026-01"), { year: 2026, q: 0 });
+  assert.deepEqual(quarterMonths(2026, 2), ["2026-07", "2026-08", "2026-09"]);
+  assert.equal(quarterLabel(2026, 2), "T3 2026 · Jul – Sep");
+  // Navegar ±3 meses cambia de trimestre y cruza el año.
+  assert.deepEqual(quarterOf(shiftMonth("2026-01", -3)), { year: 2025, q: 3 });
+
+  // Q2 2026: Arely apartó en mayo y junio.
+  const q2 = buildPmiQuarter(input, 2026, 1, now);
+  assert.equal(q2.label, "Abr – Jun");
+  assert.deepEqual(q2.months, ["2026-04", "2026-05", "2026-06"]);
+  assert.equal(q2.today, "2026-09-15");
+  const arely = q2.advisors.find((a) => a.name === "Arely")!;
+  assert.equal(arely.byMonth.length, 3);
+  assert.deepEqual(arely.byMonth.map((c) => c.apartados), [0, 1, 1]);
+  assert.equal(arely.total.apartados, 2);
+  assert.equal(arely.total.montoApartados, y.advisors.find((a) => a.name === "Arely")!.byQuarter[1].montoApartados);
+  // Objetivo del asesor = mensual × meses con actividad (abril no cuenta), la regla del año.
+  assert.equal(arely.objectives.quarter.montoApartados, 6_000_000);
+  assert.equal(arely.objectives.quarter.leads, 80);
+  assert.deepEqual(arely.objectives.byMonth.map((o) => o.leads), [40, 40, 40], "cada mes se mide contra la meta mensual");
+  assert.equal(q2.advisors.length, 1, "Monica no tuvo actividad en Q2: no aparece");
+
+  // Equipo = lo que la hoja anual dice del trimestre, número por número.
+  assert.equal(q2.team.total.apartados, y.team.byQuarter[1].apartados);
+  assert.equal(q2.team.total.montoApartados, y.team.byQuarter[1].montoApartados);
+  assert.deepEqual(q2.team.objectives.quarter, y.quarters[1].objectives);
+  assert.deepEqual(q2.team.objectives.byMonth.map((o) => o.leads), [0, 40, 40], "activos por mes × meta mensual");
+  assert.deepEqual(q2.rankingApartados, y.quarters[1].rankingApartados);
+  assert.deepEqual(q2.rankingCierres, y.quarters[1].rankingCierres);
+  assert.equal(q2.activeAdvisors, 1);
+  assert.equal(q2.unassigned, null);
+
+  // Q3 2026 en curso: un lead sin asignar en agosto va a "Sin asignar", no al equipo.
+  const q3 = buildPmiQuarter(input, 2026, 2, now);
+  assert.equal(q3.team.total.leads, 1, "solo el de Arely en septiembre");
+  assert.equal(q3.unassigned?.total.leads, 1);
+  assert.deepEqual(q3.team.byMonth.map((c) => c.cierres), [1, 0, 0]);
+  assert.equal(q3.team.total.cierres, y.team.byQuarter[2].cierres);
+  assert.deepEqual(q3.rankingCierres, y.quarters[2].rankingCierres);
+
+  // Q4 sin actividad: sin asesores, objetivos en cero (la UI dice "—"), sin ranking.
+  const q4 = buildPmiQuarter(input, 2026, 3, now);
+  assert.equal(q4.advisors.length, 0);
+  assert.equal(q4.team.objectives.quarter.leads, 0);
+  assert.equal(q4.rankingApartados.length, 0);
+  assert.equal(q4.team.conversions.leadPerfil, null);
+}
+
 async function main() {
   stagesMain();
   console.log("✅ verify:pmi — etapas");
@@ -324,6 +399,8 @@ async function main() {
   console.log("✅ verify:pmi — mes");
   yearMain();
   console.log("✅ verify:pmi — año");
+  quarterMain();
+  console.log("✅ verify:pmi — trimestre");
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
