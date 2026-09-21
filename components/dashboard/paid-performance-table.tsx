@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react"
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Coins, Columns3, Search, Facebook, Instagram, Link2 } from "lucide-react"
 import {
+  ChartCardContent,
   ChartCardHeader,
   ChartEmpty,
   ChartHint,
@@ -474,75 +475,77 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
         actions={<ScopePill label={scopeLabel} tooltip={scopeTooltip} />}
       />
 
-      {metaInv && groupBy === "campaign" && <MetaInvestmentTiles inv={metaInv} onDrill={onDrill} />}
+      <ChartCardContent>
+        {metaInv && groupBy === "campaign" && <MetaInvestmentTiles inv={metaInv} onDrill={onDrill} />}
 
-      <div id="meta-campaign-table" className="mt-5 flex flex-wrap items-center gap-3">
-        <SegmentedToggle value={groupBy} options={[{ v: "campaign", label: "Campaña" }, { v: "platform", label: "Origen" }]} onChange={onGroupByChange} />
-        <label className="relative inline-flex items-center">
-          <Search className="pointer-events-none absolute left-2 h-3 w-3 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={groupBy === "campaign" ? "Buscar campaña…" : "Buscar origen…"}
-            className="h-7 w-44 rounded-md border border-border/60 bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary/60"
-          />
-        </label>
-        <TopNSlider value={topN} max={groups.length} onChange={setTopN} disabled={query.trim().length > 0} />
-        <SwitchButton label="Perdidas" on={includeLost} onChange={onIncludeLostChange} />
-        <button
-          type="button"
-          onClick={toggleAll}
-          disabled={expandableKeys.length === 0}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-40"
-          title={allExpanded ? "Colapsar todo" : "Expandir todo"}
-        >
-          {allExpanded ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
-          {allExpanded ? "Colapsar" : "Expandir"}
-        </button>
-        <ColumnEditor showMeta={showMeta} value={visibleCols} onChange={setVisibleCols} />
-      </div>
+        <div id="meta-campaign-table" className="mt-5 flex flex-wrap items-center gap-3">
+          <SegmentedToggle value={groupBy} options={[{ v: "campaign", label: "Campaña" }, { v: "platform", label: "Origen" }]} onChange={onGroupByChange} />
+          <label className="relative inline-flex items-center">
+            <Search className="pointer-events-none absolute left-2 h-3 w-3 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={groupBy === "campaign" ? "Buscar campaña…" : "Buscar origen…"}
+              className="h-7 w-44 rounded-md border border-border/60 bg-transparent pl-7 pr-2 text-xs outline-none focus:border-primary/60"
+            />
+          </label>
+          <TopNSlider value={topN} max={groups.length} onChange={setTopN} disabled={query.trim().length > 0} />
+          <SwitchButton label="Perdidas" on={includeLost} onChange={onIncludeLostChange} />
+          <button
+            type="button"
+            onClick={toggleAll}
+            disabled={expandableKeys.length === 0}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-40"
+            title={allExpanded ? "Colapsar todo" : "Expandir todo"}
+          >
+            {allExpanded ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
+            {allExpanded ? "Colapsar" : "Expandir"}
+          </button>
+          <ColumnEditor showMeta={showMeta} value={visibleCols} onChange={setVisibleCols} />
+        </div>
 
-      {groups.length === 0 ? (
-        <ChartEmpty message="Sin oportunidades de pauta en la ventana." height={160} />
-      ) : (
-        <>
-          <div className="mt-2 overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[20rem]">{groupBy === "campaign" ? "Campaña / anuncio" : "Origen / anuncio"}</TableHead>
-                  {numericCols.map((c) => (
-                    <TableHead key={c.id} className="whitespace-nowrap text-right">
-                      <button type="button" onClick={() => toggleSort(c.id as SortKey)} className={`inline-flex items-center gap-1 hover:text-foreground ${effectiveSort.key === c.id ? "text-foreground" : ""}`}>
-                        {colLabel(c)}
-                        {effectiveSort.key === c.id && <span aria-hidden>{effectiveSort.dir === "desc" ? "↓" : "↑"}</span>}
-                      </button>
-                    </TableHead>
-                  ))}
-                  {showStages && <TableHead>Etapas</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visible.map((g) => {
-                  const expandable = g.children.length > 1
-                  const isOpen = expandable && expanded.has(g.key)
-                  // Un grupo con un solo hijo muestra el ID y la URL de ese hijo en su fila.
-                  const only = !expandable ? g.children[0] : undefined
-                  const shown: PaidRow = only ? { ...g, adId: only.adId, url: only.url } : g
-                  return [
-                    renderRow(shown, { isChild: false, isOtras: false, expandable, isOpen }),
-                    ...(isOpen ? g.children.map((c) => renderRow(c, { isChild: true, isOtras: false, expandable: false, isOpen: false })) : []),
-                  ]
-                })}
-                {otras && renderRow(otras, { isChild: false, isOtras: true, expandable: false, isOpen: false })}
-              </TableBody>
-            </Table>
-          </div>
-          <ChartHint>
-            {`${total} ${groupBy === "campaign" ? "campañas" : "orígenes"}${query ? ` que contienen "${query.trim()}"` : topN < total ? ` · top ${topN}` : ""} · clic en una fila para ver sus oportunidades · expande una campaña para ver sus anuncios`}
-          </ChartHint>
-        </>
-      )}
+        {groups.length === 0 ? (
+          <ChartEmpty message="Sin oportunidades de pauta en la ventana." height={160} />
+        ) : (
+          <>
+            <div className="mt-2 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[20rem]">{groupBy === "campaign" ? "Campaña / anuncio" : "Origen / anuncio"}</TableHead>
+                    {numericCols.map((c) => (
+                      <TableHead key={c.id} className="whitespace-nowrap text-right">
+                        <button type="button" onClick={() => toggleSort(c.id as SortKey)} className={`inline-flex items-center gap-1 hover:text-foreground ${effectiveSort.key === c.id ? "text-foreground" : ""}`}>
+                          {colLabel(c)}
+                          {effectiveSort.key === c.id && <span aria-hidden>{effectiveSort.dir === "desc" ? "↓" : "↑"}</span>}
+                        </button>
+                      </TableHead>
+                    ))}
+                    {showStages && <TableHead>Etapas</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visible.map((g) => {
+                    const expandable = g.children.length > 1
+                    const isOpen = expandable && expanded.has(g.key)
+                    // Un grupo con un solo hijo muestra el ID y la URL de ese hijo en su fila.
+                    const only = !expandable ? g.children[0] : undefined
+                    const shown: PaidRow = only ? { ...g, adId: only.adId, url: only.url } : g
+                    return [
+                      renderRow(shown, { isChild: false, isOtras: false, expandable, isOpen }),
+                      ...(isOpen ? g.children.map((c) => renderRow(c, { isChild: true, isOtras: false, expandable: false, isOpen: false })) : []),
+                    ]
+                  })}
+                  {otras && renderRow(otras, { isChild: false, isOtras: true, expandable: false, isOpen: false })}
+                </TableBody>
+              </Table>
+            </div>
+            <ChartHint>
+              {`${total} ${groupBy === "campaign" ? "campañas" : "orígenes"}${query ? ` que contienen "${query.trim()}"` : topN < total ? ` · top ${topN}` : ""} · clic en una fila para ver sus oportunidades · expande una campaña para ver sus anuncios`}
+            </ChartHint>
+          </>
+        )}
+      </ChartCardContent>
     </DashboardCard>
   )
 }

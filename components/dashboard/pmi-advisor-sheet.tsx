@@ -40,10 +40,10 @@ export function PmiAdvisorSheet({
         actions={<ScopePill label="Semáforo diario" tooltip="Contra el objetivo diario (semanal ÷ 7): verde ≥ 180 %, azul ≥ 100 %, rojo ≥ 75 %; debajo, sin color. El total de cada semana (Σ) se compara con el objetivo semanal." />} />
       <ChartCardContent>
         <div className="overflow-x-auto">
-          <table className="text-[11px] tabular-nums">
+          <table className="w-full text-[11px] tabular-nums">
             <thead>
               <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                <th className="sticky left-0 bg-card py-1 pr-2 text-left font-medium">Indicador</th>
+                <th className="sticky left-0 w-[1%] whitespace-nowrap bg-card py-1 pr-3 text-left font-medium">Indicador</th>
                 {weeks.map((w) => (
                   <th key={w.index} colSpan={w.days.length + 1} className="border-l border-border/60 px-1 py-1 text-center font-medium">
                     Semana {w.index + 1} · {w.label}
@@ -55,7 +55,7 @@ export function PmiAdvisorSheet({
                 {weeks.map((w) => (
                   <Fragment key={w.index}>
                     {w.days.map((d, i) => (
-                      <th key={d} className={cn("w-7 px-0.5 py-0.5 text-center font-normal", i === 0 && "border-l border-border/60")}>
+                      <th key={d} className={cn("min-w-7 px-0.5 py-0.5 text-center font-normal", i === 0 && "border-l border-border/60")}>
                         <span className="block">{Number(d.slice(8))}</span>
                         <span className="block opacity-70">{weekdayLetter(d)}</span>
                       </th>
@@ -71,7 +71,7 @@ export function PmiAdvisorSheet({
                 const objWeek = slice.objectives.week[kind]
                 return (
                   <tr key={kind} className="border-t border-border/60">
-                    <td className="sticky left-0 bg-card py-0.5 pr-2 font-medium">{INDICATOR_LABELS[kind]}</td>
+                    <td className="sticky left-0 whitespace-nowrap bg-card py-0.5 pr-3 font-medium">{INDICATOR_LABELS[kind]}</td>
                     {weeks.map((w) => (
                       <Fragment key={w.index}>
                         {w.days.map((d, i) => {
@@ -85,7 +85,7 @@ export function PmiAdvisorSheet({
                             <td key={d} className={cn("px-0.5 py-0.5", i === 0 && "border-l border-border/60")}>
                               <button type="button" disabled={ids.length === 0}
                                 onClick={() => onCell(kind, ids, dayLabel(d))}
-                                className={cn("h-6 w-7 rounded text-center", toneClass(semaphore(v, objDay)),
+                                className={cn("h-6 w-full min-w-7 rounded text-center", toneClass(semaphore(v, objDay)),
                                   ids.length > 0 ? "hover:ring-1 hover:ring-primary/40" : "cursor-default opacity-60")}>
                                 {v}
                               </button>
