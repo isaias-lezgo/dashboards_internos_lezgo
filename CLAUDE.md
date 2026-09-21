@@ -621,6 +621,17 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   bitácora no hay historia: se fecha con `updatedAt` y se marca `estimated`; la UI y el
   PDF lo dicen. Octubre 2026 es el primer mes con fechas exactas. La base no es una
   dependencia: si falla, las oportunidades salen con hitos estimados y el sync sigue.
+  - **Los estimados mienten en lote.** `updatedAt` corre con CUALQUIER edición: en
+    Yconia 20 cierres cayeron el 25-jun (marcado de `won` en lote) y en Condesa
+    firmas de febrero a abril salían en junio/julio. La única fuente de fechas reales
+    es la consultoría: `pnpm pmi:backfill <proyecto> <csv> [--apply]`
+    (`scripts/backfill-milestones.ts`) carga un CSV verificado a mano como fechas
+    **exactas**, solo sobre filas `estimated`, nunca pisa una exacta, y recorre un
+    perfilado estimado que quedara después de su apartado real. Es la única excepción
+    al insert-only, y los CSV quedan versionados en `scripts/backfill/` con el nombre
+    de cada oportunidad. Condesa 2026 cargado el 2026-09-21. **Cierre sigue siendo
+    escritura (08+)**: una firma en "07. Pago de Mensualidades" no cuenta hasta que la
+    muevan — decisión de producto, no un hueco.
 - **`status: won` se pone al APARTAR en Yconia**: las 61 oportunidades en `06`–`10`
   tienen `status: won`. `isWonOpp()` cuenta por tanto apartados como ganadas en el KPI
   "Ganadas" de Ventas y en el CPA de Meta. El PMI va por etapa y no lo usa. **Deuda
@@ -638,6 +649,14 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
 - Un solo motor (`lib/pmi.ts`, puro, navegador) alimenta pestaña y PDF
   (`lib/pmi-report.ts`, `reportType: "pmi"`). Fuera de alcance: cambaceo, accountability,
   objetivos editables, asistente.
+- **Vista Trimestre** (2026-09-21): `buildPmiQuarter(input, year, q)` es el espejo de
+  `buildPmiMonth` con **meses en lugar de semanas** (sin día a día). Sus totales,
+  objetivos y rankings salen del MISMO código que `PmiYear.quarters` (`quarterRanking`,
+  regla "mensual × meses con actividad"; equipo = Σ activos del mes × mensual), y
+  `verify:pmi` comprueba que el trimestre da número por número lo que la hoja anual
+  dice de él. Las flechas mueven ±3 meses sobre el mismo estado `month`. `PmiFunnel`
+  recibe `total / objective / conversions` y `PmiPeriodTable` (`pmi-week-table.tsx`)
+  columnas genéricas: una tarjeta por período, no dos copias.
 - **Las gráficas del Excel** (2026-09-19): embudo mensual (`pmi-funnel.tsx`), rankings con
   carita (`pmi-ranking-chart.tsx`, uno para mes, trimestre y año), líneas mensuales y
   trimestres (`pmi-year-charts.tsx`; `PmiYear.quarters` en el motor, meta del trimestre =

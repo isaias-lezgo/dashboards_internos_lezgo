@@ -27,7 +27,8 @@
     "verify:pmi-ledger": "tsx --env-file-if-exists=.env.local scripts/verify-pmi-ledger.ts",
     "verify:paid-performance": "tsx scripts/verify-paid-performance.ts",
     "add-client": "tsx scripts/add-client.ts",
-    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env.local scripts/db-migrate.ts",
+    "pmi:backfill": "tsx --env-file-if-exists=.env.local scripts/backfill-milestones.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",

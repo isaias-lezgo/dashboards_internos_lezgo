@@ -1,0 +1,24 @@
+# Condesa Cimatario · fechas reales de apartado y firma, de la tabla de la
+# consultoría (2026-09-21). Cierre = escritura (08+): a las oportunidades que
+# siguen en "07. Pago de Mensualidades" solo se les carga el apartado.
+# Fecha en día local (America/Mexico_City).
+opportunity_id,milestone,date,note
+mly9auWSLugphRyn3qLO,apartado,2026-01-18,Ashley Romero G07
+mly9auWSLugphRyn3qLO,cierre,2026-02-13,Ashley Romero G07
+MvmLA6GhKrhO6mU1tDt7,apartado,2026-03-30,I04 Rafael Ocampo VIVIR
+MvmLA6GhKrhO6mU1tDt7,cierre,2026-03-30,I04 Rafael Ocampo VIVIR
+JKdPoYwTLVrwWy29cncR,apartado,2026-03-30,I03 Rafael INVERSION
+JKdPoYwTLVrwWy29cncR,cierre,2026-03-30,I03 Rafael INVERSION
+KoNdATw250sb0m1czPhw,apartado,2026-03-12,Alejandra Romero H04
+KoNdATw250sb0m1czPhw,cierre,2026-03-31,Alejandra Romero H04
+bielTaDpEwTj4HzlADKn,apartado,2026-04-14,Margarita Maqueda - HO3 vivir (07: firma 27-abr no cuenta como cierre)
+0hrK8kD8fX2ClYzOAOcF,apartado,2026-04-17,Mariano Azuela - I07 INV
+0hrK8kD8fX2ClYzOAOcF,cierre,2026-04-30,Mariano Azuela - I07 INV
+V8mbXz5u6FSr9lgxNEgO,apartado,2026-06-08,ARTER JOVANY MENA TREJO Acacias I08 (07: firma 21-jun no cuenta)
+fsvQIte02jj3xX1zuDod,apartado,2026-06-20,Madeline H06
+fsvQIte02jj3xX1zuDod,cierre,2026-06-30,Madeline H06
+INJqGV3ZZquxxdylbr9P,apartado,2026-06-27,ISADORA VAZQUEZ BELTRAN-H07 (07: firma 18-jul no cuenta)
+VWJ191zzm7Cy1Z3zr29l,apartado,2026-06-17,Martin Hernàndez Garambullo G13
+VWJ191zzm7Cy1Z3zr29l,cierre,2026-07-23,Martin Hernàndez Garambullo G13
+mH52LHmHxAX3lik1NE5e,apartado,2026-07-11,Ginette Ballado "Hija" (07: firma 30-jul no cuenta)
+B943G5FZNeMWLKbmdJgO,apartado,2026-07-11,Ginette Maynez "Madre" (07: firma 30-jul no cuenta)
