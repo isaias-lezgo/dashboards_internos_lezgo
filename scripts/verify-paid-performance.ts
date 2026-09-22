@@ -7,13 +7,14 @@
 // al de buildMetaReport; (2) un anuncio con gasto y sin leads existe; (3) lo que
 // no cruza con Meta sobrevive sin costos; (4) la barra de etapas suma Opps;
 // (5) sin Meta salen las mismas filas; (6) Citas cuenta contactos; (7) la cadena
-// manda sobre el campo crudo; (12) en modo Origen no hay inversión.
+// manda sobre el campo crudo; (12) en modo Origen no hay inversión; (13) los
+// modos URL e ID (la gráfica de etapas) reparten las mismas oportunidades.
 //
 // Envuelto en main() en vez de usar await de nivel superior: este paquete es CJS.
 import assert from "node:assert/strict";
 import type { Appointment, Contact, MetaAdsData, Opportunity, Pauta, Pipeline } from "../lib/types";
 import { buildMetaIndex, buildAttributionContext, buildMetaReport } from "../lib/meta-attribution";
-import { buildPaidPerformance, EMPTY_META, NO_AD_KEY, type PaidGroup } from "../lib/paid-performance";
+import { buildPaidPerformance, EMPTY_META, NO_AD_KEY, NO_AD_LABEL, NO_URL_LABEL, type PaidGroup } from "../lib/paid-performance";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,9 @@ const opportunities: Opportunity[] = [
   // Ad id propio que Meta no conoce, pero el contacto trae uno que sí (o7 abajo).
   opp({ id: "o6", adId: "120999", contactId: "c-o7", stage: "Cita" }),
   opp({ id: "o7", adId: "120200", contactId: "c-o7", stage: "Cita" }),
+  // Perdida por ETAPA con status abierto: hay cuentas que mueven la etapa sin
+  // tocar el status. El toggle "Perdidas" la quita igual que a o3.
+  opp({ id: "o8", adId: "120100", stage: "Perdido", status: "open", attributionUrl: "https://fb.me/xyz" }),
 ];
 const contacts: Contact[] = Array.from(new Set(opportunities.map((o) => o.contactId))).map((id) => contact({ id }));
 const pautas: Pauta[] = [];
@@ -132,9 +136,9 @@ async function main() {
   // ── 4. La barra de etapas suma Opps, con y sin perdidas ──────────────────
   {
     const withLost = byLabel(build(true), "CAMPAÑA A");
-    assert.equal(withLost.opportunities, 6); // o1 o2 o3 o4 o6 o7 (o6 va por su contacto → ad 120200)
+    assert.equal(withLost.opportunities, 7); // o1 o2 o3 o4 o6 o7 o8 (o6 va por su contacto → ad 120200)
     assert.equal(withLost.stages.reduce((a, s) => a + s.count, 0), withLost.opportunities);
-    assert.ok(withLost.stages.some((s) => s.lost && s.stage === "Perdido" && s.count === 1));
+    assert.ok(withLost.stages.some((s) => s.lost && s.stage === "Perdido" && s.count === 2), "perdida por status Y por etapa");
     assert.deepEqual(withLost.stages.map((s) => s.stage), ["Nuevo", "Cita", "Ganado", "Perdido"], "orden del pipeline");
 
     const noLost = byLabel(build(true, { includeLost: false }), "CAMPAÑA A");
@@ -142,6 +146,7 @@ async function main() {
     assert.equal(noLost.stages.reduce((a, s) => a + s.count, 0), 5);
     assert.ok(!noLost.stages.some((s) => s.lost));
     assert.ok(!noLost.oppIds.includes("o3"), "la perdida sale también de oppIds");
+    assert.ok(!noLost.oppIds.includes("o8"), "perdida por etapa con status open también sale");
   }
 
   // ── 6. Citas cuenta CONTACTOS; Efectivas solo showed ─────────────────────
@@ -171,7 +176,7 @@ async function main() {
     // o6 (adId 120999) cae en "120999": sin Meta la cadena devuelve el primer id crudo.
     const sinNombre = byLabel(groups, "Sin nombre");
     assert.deepEqual([...sinNombre.children.map((c) => c.key)].sort(), ["120100", "120200", "120999"].sort());
-    assert.equal(groups.reduce((a, g) => a + g.opportunities, 0), 7);
+    assert.equal(groups.reduce((a, g) => a + g.opportunities, 0), 8);
   }
 
   // ── 1. El gasto por campaña es IDÉNTICO al de buildMetaReport ────────────
@@ -196,9 +201,9 @@ async function main() {
     assert.equal(a.spend, 150.5);
     assert.equal(a.cpm, (150.5 / 1500) * 1000);
     assert.equal(a.ctr, 70 / 1500);
-    // CPL = gasto ÷ contactos de la fila (c-o1 c-o2 c-o3 c-o4 c-o7 → 5).
-    assert.equal(a.leadsCrm, 5);
-    assert.equal(a.cpl, 150.5 / 5);
+    // CPL = gasto ÷ contactos de la fila (c-o1 c-o2 c-o3 c-o4 c-o7 c-o8 → 6).
+    assert.equal(a.leadsCrm, 6);
+    assert.equal(a.cpl, 150.5 / 6);
     assert.equal(a.cpa, 150.5 / 1);
     // Los hijos suman al grupo: 100 + 50.5.
     assert.equal(a.children.reduce((s, c) => s + (c.spend ?? 0), 0), a.spend);
@@ -224,7 +229,7 @@ async function main() {
     assert.ok(ad200);
     assert.ok(ad200.oppIds.includes("o6"), "o6 (adId 120999, contacto con 120200) cae bajo el ad 120200");
     assert.ok(!a.children.some((c) => c.adId === "120999"));
-    // La URL más frecuente del hijo 120100 es la de Instagram (2 de 3), con 1 otra.
+    // La URL más frecuente del hijo 120100 es la de Instagram (2 de 4), con 1 otra.
     const ad100 = a.children.find((c) => c.adId === "120100");
     assert.ok(ad100?.url);
     assert.equal(ad100.url.platform, "instagram");
@@ -236,7 +241,7 @@ async function main() {
     const groups = build(true, { groupBy: "platform" });
     assert.ok(groups.length > 0);
     for (const g of groups) assert.equal(g.spend, null);
-    assert.equal(groups.reduce((s, g) => s + g.opportunities, 0), 7);
+    assert.equal(groups.reduce((s, g) => s + g.opportunities, 0), 8);
     // Un contacto SIN oportunidad se ubica por sus propias señales (source, liga,
     // "Origen de Lead"), no en "Otro": en Lezgo Suite el 93 % de los leads nunca
     // llega a oportunidad y "Otro" se comía 1,450.
@@ -244,6 +249,33 @@ async function main() {
     const withSolo = build(true, { groupBy: "platform", contacts: [...contacts, solo] });
     assert.ok(byLabel(withSolo, "Instagram").contactIds.includes("c-solo"));
     assert.ok(!withSolo.some((g) => g.label === "Otro"));
+  }
+
+  // ── 13. Modos URL e ID: la gráfica de etapas por pauta ───────────────────
+  // Una fila por liga / por anuncio, con las MISMAS etapas y la MISMA cadena de
+  // ad id que en modo Campaña; lo que no tiene liga o id cae en su cubo propio y
+  // no desaparece. Sin inversión: el gasto solo se reparte por campaña.
+  {
+    const byUrl = build(true, { groupBy: "url" });
+    assert.equal(byUrl.reduce((s, g) => s + g.opportunities, 0), 8);
+    const ig = byLabel(byUrl, "https://ig.me/m/abc");
+    assert.deepEqual([...ig.oppIds].sort(), ["o1", "o2"]);
+    assert.deepEqual(ig.stages.map((s) => [s.stage, s.count]), [["Nuevo", 1], ["Cita", 1]]);
+    const fb = byLabel(byUrl, "https://fb.me/xyz");
+    assert.deepEqual(fb.stages.map((s) => [s.stage, s.count, s.lost]), [["Perdido", 2, true]]);
+    assert.equal(byLabel(byUrl, NO_URL_LABEL).opportunities, 4, "o4 o5 o6 o7 sin liga");
+    for (const g of byUrl) assert.equal(g.spend, null);
+    const byUrlNoLost = build(true, { groupBy: "url", includeLost: false });
+    assert.ok(!byUrlNoLost.some((g) => g.label === "https://fb.me/xyz"), "una liga que solo trajo perdidas desaparece sin ellas");
+
+    const byAd = build(true, { groupBy: "ad" });
+    assert.equal(byAd.reduce((s, g) => s + g.opportunities, 0), 8);
+    const ad200 = byLabel(byAd, "120200");
+    assert.deepEqual([...ad200.oppIds].sort(), ["o4", "o6", "o7"], "la cadena manda: o6 cae bajo 120200 también aquí");
+    assert.equal(ad200.children.length, 1);
+    assert.equal(byLabel(byAd, "120100").opportunities, 4);
+    assert.equal(byLabel(byAd, NO_AD_LABEL).opportunities, 1, "o5 (TikTok sin id) no desaparece");
+    for (const g of byAd) assert.equal(g.spend, null);
   }
 
   console.log("verify:paid-performance ✓");

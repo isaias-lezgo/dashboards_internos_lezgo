@@ -552,9 +552,9 @@ export function PaidPerformanceTable(props: PaidPerformanceTableProps) {
 
 // ── PDF ─────────────────────────────────────────────────────────────────────
 // La misma tabla, en bloques de pdfmake: top 15 grupos con las columnas de
-// pantalla (sin Impr./Clics/CPM, que en papel solo ensanchan), y una tabla
-// anexa etapa × campaña — una tabla se lee en papel; una apilada de 30
-// colores no.
+// pantalla (sin Impr./Clics/CPM, que en papel solo ensanchan). La tabla etapa ×
+// pauta vive en la sección de la gráfica de etapas (paid-stage-chart.tsx),
+// que es la tarjeta cuyos toggles la gobiernan.
 
 export function buildPaidReportSection(p: {
   groups: PaidGroup[]
@@ -593,20 +593,6 @@ export function buildPaidReportSection(p: {
   const rows = top.map((g) => rowOf(g))
   if (rest.length > 0) rows.push(rowOf(sumRows(rest, OTRAS_KEY, `Otras (${rest.length})`), true))
 
-  // Etapa × campaña: top 6 por opps + Otras.
-  const byOpps = [...p.groups].sort((a, b) => b.opportunities - a.opportunities)
-  const stageCols = byOpps.slice(0, 6)
-  const stageRest = byOpps.slice(6)
-  const stageColRows: PaidRow[] = stageRest.length > 0 ? [...stageCols, sumRows(stageRest, OTRAS_KEY, `Otras (${stageRest.length})`)] : stageCols
-  const stageNames = Array.from(new Map(p.groups.flatMap((g) => g.stages).map((s) => [s.stage, s])).values())
-    .sort((x, y) => Number(x.lost) - Number(y.lost) || x.order - y.order || x.stage.localeCompare(y.stage))
-    .map((s) => s.stage)
-  const stageTable = {
-    t: "table" as const,
-    headers: ["Etapa", ...stageColRows.map((g) => g.label)],
-    rows: stageNames.map((name) => [name, ...stageColRows.map((g) => int(g.stages.find((s) => s.stage === name)?.count ?? 0))]),
-  }
-
   return {
     id: "pauta-rendimiento",
     title: "Inversión y rendimiento de pauta",
@@ -614,14 +600,10 @@ export function buildPaidReportSection(p: {
       (showMeta
         ? "Gasto de Meta Ads en el periodo, cruzado por id de anuncio con los contactos y oportunidades de pauta del CRM creados en él (el anuncio sale de la oportunidad, del objeto Pauta o de la atribución del contacto, en ese orden). Leads CRM son contactos; CPL usa esos leads, no los que Meta reporta; CPA usa las oportunidades ganadas. "
         : "Pautas del CRM en el periodo (Meta, TikTok, Google), agrupadas por su anuncio; sin conexión a Meta no hay gasto. ") +
-      "Citas cuenta contactos con al menos una cita en el periodo; Efectivas, con una cita realizada. La tabla de etapas muestra en qué punto del pipeline están las oportunidades de cada " +
-      (p.groupBy === "campaign" ? "campaña" : "origen") +
-      (p.includeLost ? ", perdidas incluidas." : "; las perdidas no se cuentan.") +
+      "Citas cuenta contactos con al menos una cita en el periodo; Efectivas, con una cita realizada. " +
+      (p.includeLost ? "Las oportunidades perdidas están incluidas." : "Las oportunidades perdidas no se cuentan.") +
+      " La etapa del pipeline de cada pauta va en la sección siguiente." +
       (suppressed && showMeta ? " Con filtros de atributo activos el gasto no se recorta, por eso CPL y CPA no se calculan." : ""),
-    blocks: [
-      { t: "table", headers, rows },
-      { t: "subheading", text: `Oportunidades de pauta por etapa${p.includeLost ? "" : " (sin perdidas)"}` },
-      stageTable,
-    ],
+    blocks: [{ t: "table", headers, rows }],
   }
 }

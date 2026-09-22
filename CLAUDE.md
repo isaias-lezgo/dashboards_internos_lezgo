@@ -585,7 +585,17 @@ tarjeta, editor de columnas, barra de etapas y sección del PDF en
   **Efectivas** = `showed`. Es el vocabulario del PMI.
 - **La barra de etapas** va en orden del pipeline con perdidas al final; el toggle
   "Perdidas" las quita de la barra Y de Opps (y de `oppIds`). No lleva leyenda: el hover
-  decodifica. En el PDF va como tabla etapa × campaña (top 6 + Otras).
+  decodifica. **Perdida = `status: lost` O etapa de perdidos** (`isLostOpp()` en
+  `lib/opportunity-status.ts`, patrón `perdid[oa]`): hay cuentas que mueven a "Negocio
+  Perdido" sin tocar el status.
+- **"Etapa del pipeline por pauta"** (`paid-stage-chart.tsx`, 2026-09-21) es la gráfica
+  que se jubiló el 09-19 y volvió al revés: una barra por **Campaña / URL / ID**, apilada
+  por etapa (ordinal: un tono, claro → oscuro; perdidas en rojo al final), con su propio
+  toggle "Perdidas". **Lee el MISMO `buildPaidPerformance`** — `groupBy` ganó `"url"` y
+  `"ad"` para ella; sin `meta`, porque no muestra gasto — así que las etapas de una
+  campaña son el mismo arreglo que en la tabla. La tabla etapa × pauta del PDF (top 6 +
+  Otras) vive ahora en su sección (`buildPaidStageReportSection`), gobernada por sus
+  toggles, y ya no en la de la tabla.
 - El editor de columnas guarda en `localStorage` (`paid-performance-cols`): conveniencia
   por navegador, no estado del negocio. Sin Meta las columnas de Meta no se ofrecen.
 - El contexto de atribución se construye UNA vez en `marketing-dashboard.tsx`

@@ -24,9 +24,14 @@ import {
 } from "./meta-attribution";
 import { campaignHeadline, resolveCampaignName } from "./pauta";
 import { platformLabel } from "./source-platform";
-import { isWonOpp } from "./opportunity-status";
+import { isLostOpp, isWonOpp } from "./opportunity-status";
 
-export type PaidGroupBy = "campaign" | "platform";
+/**
+ * "campaign" | "platform" son los modos de la tabla; "url" | "ad" los de la
+ * gráfica de etapas por pauta. Todos reparten las MISMAS oportunidades con la
+ * misma cadena de ad id; solo "campaign" lleva inversión (attachMeta).
+ */
+export type PaidGroupBy = "campaign" | "platform" | "url" | "ad";
 
 /** Un MetaAdsData sin nada: con él la cadena de atribución corre igual sin Meta. */
 export const EMPTY_META: MetaAdsData = {
@@ -41,6 +46,7 @@ export const EMPTY_META: MetaAdsData = {
 
 export const NO_AD_KEY = "__sin_id";
 export const NO_AD_LABEL = "Sin ID de anuncio";
+export const NO_URL_LABEL = "Sin URL de atribución";
 export const SIN_NOMBRE = "Sin nombre";
 /** Anuncios que Meta trae sin campaña (archivados): gastan, pero no están en ninguna. */
 const ORPHAN_KEY = "meta:__sin_campana";
@@ -210,19 +216,34 @@ export function buildPaidPerformance(p: PaidPerformanceInput): PaidGroup[] {
     label,
     crmOnly: !(adId && ctx.index.byAd.has(adId)),
   });
+  const urlGroup = (url: string | undefined, adId: string | null): GroupKey => ({
+    key: url ? `url:${url}` : "url:__sin_url",
+    label: url || NO_URL_LABEL,
+    crmOnly: !(adId && ctx.index.byAd.has(adId)),
+  });
+  const adGroup = (adId: string | null): GroupKey => ({
+    key: `ad:${adId ?? NO_AD_KEY}`,
+    label: adId ?? NO_AD_LABEL,
+    crmOnly: !(adId && ctx.index.byAd.has(adId)),
+  });
+  const groupOf = (opp: Opportunity, adId: string | null): GroupKey => {
+    switch (p.groupBy) {
+      case "platform": return platformGroup(platformLabel(opp), adId);
+      case "url": return urlGroup(opp.attributionUrl, adId);
+      case "ad": return adGroup(adId);
+      default: return metaOrCrmGroup(adId, resolveCampaignName(opp, p.pautaNameByContact));
+    }
+  };
 
   // Paso 1 — oportunidades. Cada una decide el grupo y el hijo de su contacto.
   const placementByContact = new Map<string, { group: GroupBucket; child: Bucket }>();
   for (const opp of p.opportunities) {
     if (classifyLead(opp, ctx) === "notPauta") continue;
-    const lost = opp.status === "lost";
+    // Perdida por status O por etapa ("Negocio Perdido" con status abierto).
+    const lost = isLostOpp(opp);
     if (lost && !p.includeLost) continue;
     const adId = resolveOppAdId(opp, ctx);
-    const gk =
-      p.groupBy === "platform"
-        ? platformGroup(platformLabel(opp), adId)
-        : metaOrCrmGroup(adId, resolveCampaignName(opp, p.pautaNameByContact));
-    const g = groupFor(gk);
+    const g = groupFor(groupOf(opp, adId));
     const c = childFor(g, adId);
     for (const b of [g, c]) {
       b.oppIds.push(opp.id);
@@ -247,6 +268,10 @@ export function buildPaidPerformance(p: PaidPerformanceInput): PaidGroup[] {
       if (p.groupBy === "platform") {
         const anyOpp = (ctx.oppsByContact.get(c.id) ?? [])[0];
         gk = platformGroup(anyOpp ? platformLabel(anyOpp) : contactPlatformLabel(c), adId);
+      } else if (p.groupBy === "url") {
+        gk = urlGroup(c.attributionUrl, adId);
+      } else if (p.groupBy === "ad") {
+        gk = adGroup(adId);
       } else {
         gk = metaOrCrmGroup(adId, p.pautaNameByContact.get(c.id));
       }

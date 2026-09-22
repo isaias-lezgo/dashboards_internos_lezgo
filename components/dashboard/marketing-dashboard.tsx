@@ -39,6 +39,7 @@ import { ExportReportButton } from "./export-report-button"
 import type { ReportInput, ReportSection } from "@/lib/report"
 import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
 import { PaidPerformanceTable, usePaidPerformance, buildPaidReportSection } from "./paid-performance-table"
+import { PaidStageChart, buildPaidStageReportSection, type PaidStageGroupBy } from "./paid-stage-chart"
 import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
 import { EMPTY_META, urlPlatform, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
@@ -598,6 +599,23 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     includeLost: paidIncludeLost,
     meta: paidMetaInput,
   })
+
+  // Etapa del pipeline por pauta: el MISMO motor con sus propios toggles
+  // (Campaña | URL | ID, Perdidas). Sin `meta`: la gráfica no muestra gasto y
+  // la jerarquía de campañas ya viene en el contexto de atribución.
+  const [stageGroupBy, setStageGroupBy] = useState<PaidStageGroupBy>("campaign")
+  const [stageIncludeLost, setStageIncludeLost] = useState(true)
+  const stageGroups = usePaidPerformance({
+    opportunities,
+    contacts,
+    appointments,
+    pipelines,
+    pautaNameByContact,
+    ctx: attributionCtx,
+    groupBy: stageGroupBy,
+    includeLost: stageIncludeLost,
+    meta: null,
+  })
   const [hoveredAdType, setHoveredAdType] = useState<number | undefined>(undefined)
   const { groupBy: wonGroupBy, setGroupBy: setWonGroupBy, selected: wonKeys, setSelected: setWonKeys } = useGroupKeyFilter("campaign")
   const { groupBy: lostGroupBy, setGroupBy: setLostGroupBy, selected: lostKeys, setSelected: setLostKeys } = useGroupKeyFilter("campaign")
@@ -1021,6 +1039,9 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       )
     }
 
+    const stageSection = buildPaidStageReportSection({ groups: stageGroups, groupBy: stageGroupBy, includeLost: stageIncludeLost })
+    if (stageSection) sections.push(stageSection)
+
     if (leadsByCategory.length > 0) {
       const cats = SOURCE_CATEGORY_ORDER.filter((cat) =>
         leadsByCategory.some((r) => r.breakdown.some((b) => b.category === cat))
@@ -1203,6 +1224,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     locationName, originGroupBy, wonGroupBy,
     lostKeys, lostTopN, lostByReasonKeyCount,
     wonKeys, wonTopN, metaInv, paidGroups, paidGroupBy, paidIncludeLost,
+    stageGroups, stageGroupBy, stageIncludeLost,
   ])
 
   return (
@@ -1237,6 +1259,16 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         opportunities={opportunities}
         contacts={contacts}
         allOpportunities={lookupOpportunities}
+        onDrill={setDrill}
+      />
+
+      <PaidStageChart
+        groups={stageGroups}
+        groupBy={stageGroupBy}
+        onGroupByChange={setStageGroupBy}
+        includeLost={stageIncludeLost}
+        onIncludeLostChange={setStageIncludeLost}
+        opportunities={opportunities}
         onDrill={setDrill}
       />
 

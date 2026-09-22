@@ -12,6 +12,17 @@ import type { Opportunity } from "./types"
 // Word-boundary on "won" avoids matching it as a substring of unrelated words.
 const WON_STAGE_PATTERN = /ganad[oa]|\bwon\b/i
 
+// "Negocio Perdido" / "Prospecto Perdido" (es) and "Lost" / "Closed Lost" (en).
+const LOST_STAGE_PATTERN = /perdid[oa]|\blost\b/i
+
+// Lost is either signal: GHL's status, or the pipeline's lost stage. Some
+// sub-accounts move the opportunity into "Negocio Perdido" without touching the
+// status, and the reverse happens when an automation marks `lost` in place.
+export function isLostOpp(opp: Opportunity): boolean {
+  if (opp.status === "lost" || opp.status === "abandoned") return true
+  return LOST_STAGE_PATTERN.test(opp.stage ?? "")
+}
+
 export function isWonOpp(opp: Opportunity): boolean {
   if (opp.status === "won") return true
   // An explicitly lost/abandoned opp is never a win, even if it lingers in a
