@@ -55,8 +55,9 @@ export const PMI_RULES = {
 
 const COUNT_KEYS = ["leads", "perfilamientos", "citas", "apartados", "cierres"] as const
 
-// Una línea por período (semanas del mes o meses del trimestre); el clic en un
-// punto abre los registros de ese período.
+// Una línea por período (semanas del mes o meses del trimestre); el clic en
+// cualquier parte de la columna del período abre sus registros (el chart
+// resuelve el índice por `activePayload`, no hay que atinarle al punto).
 function TrendLine({ title, labels, values, onPoint }: { title: string; labels: string[]; values: number[]; onPoint: (i: number) => void }) {
   const data = labels.map((label, i) => ({ label, value: values[i], index: i }))
   return (
@@ -64,14 +65,18 @@ function TrendLine({ title, labels, values, onPoint }: { title: string; labels: 
       <ChartCardHeader title={title} />
       <ChartCardContent>
         <ChartContainer config={{ value: { label: title } }} className="h-[180px] w-full">
-          <LineChart data={data} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+          <LineChart data={data} margin={{ top: 16, right: 16, left: 0, bottom: 0 }} style={{ cursor: "pointer" }}
+            onClick={(state: { activePayload?: Array<{ payload?: { index: number } }> }) => {
+              const idx = state?.activePayload?.[0]?.payload?.index
+              if (idx !== undefined) onPoint(idx)
+            }}>
             <CartesianGrid vertical={false} stroke={CHART_GRID_STROKE} />
             <XAxis dataKey="label" tick={CHART_TICK} axisLine={false} tickLine={false} />
             <YAxis tick={CHART_TICK} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
             <ChartTooltip content={<NonZeroTooltipContent />} />
             <Line type="monotone" dataKey="value" name={title} stroke={STRUCTURAL_NAVY} strokeWidth={2}
-              dot={{ r: 4, fill: STRUCTURAL_NAVY, strokeWidth: 0, cursor: "pointer" }}
-              activeDot={{ r: 6, cursor: "pointer", onClick: (d: unknown) => { const idx = (d as { payload?: { index: number } })?.payload?.index; if (idx !== undefined) onPoint(idx) } }}>
+              dot={{ r: 4, fill: STRUCTURAL_NAVY, strokeWidth: 0 }}
+              activeDot={{ r: 6 }}>
               <LabelList dataKey="value" position="top" fontSize={11} className="fill-foreground" />
             </Line>
           </LineChart>

@@ -22,6 +22,9 @@ function futureMonth(year: PmiYear, i: number): boolean {
   return `${year.year}-${String(i + 1).padStart(2, "0")}-01` > year.today
 }
 
+// El clic va en el chart y no en el punto: Recharts resuelve el mes por la
+// columna bajo el cursor (`activePayload`), así que atinarle a un punto de 4px
+// deja de ser requisito. El drawer abre con los ids que el motor guardó.
 export function MonthlyMoneyLine({ year, kind, onPoint }: { year: PmiYear; kind: MoneyKind; onPoint: (kind: PmiIndicator, ids: string[], label: string) => void }) {
   const key = MONEY_KEY[kind]
   const data = year.team.byMonth.map((c, i) => ({
@@ -33,26 +36,27 @@ export function MonthlyMoneyLine({ year, kind, onPoint }: { year: PmiYear; kind:
   return (
     <DashboardCard>
       <ChartCardHeader title={`${MONEY_TITLE[kind]} · ${year.year}`}
-        actions={<ScopePill label="Equipo" tooltip={`Monto ${kind === "apartados" ? "apartado" : "cerrado"} por el equipo en cada mes; los meses que no han ocurrido no llevan punto.`} />} />
+        actions={<ScopePill label="Equipo" tooltip={`Monto ${kind === "apartados" ? "apartado" : "cerrado"} por el equipo en cada mes, según el campo "${kind === "apartados" ? "Fecha de apartado" : "Fecha de cierre"}" de cada oportunidad; sin fecha no cuenta. Los meses que no han ocurrido no llevan punto. Clic en un mes para ver sus oportunidades.`} />} />
       <ChartCardContent>
         {occurred.length === 0 ? (
           <ChartEmpty message="El año no ha empezado." />
         ) : (
           <ChartContainer config={{ value: { label: "Monto" } }} className="h-[200px] w-full">
-            <LineChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+            <LineChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }} style={{ cursor: "pointer" }}
+              onClick={(state: { activePayload?: Array<{ payload?: { index: number } }> }) => {
+                const idx = state?.activePayload?.[0]?.payload?.index
+                if (idx === undefined || futureMonth(year, idx)) return
+                const ids = year.team.byMonth[idx].ids[kind]
+                if (ids.length) onPoint(kind, ids, `Equipo · ${MONTHS[idx]} ${year.year}`)
+              }}>
               <CartesianGrid vertical={false} stroke={CHART_GRID_STROKE} />
               <XAxis dataKey="label" tick={CHART_TICK} axisLine={false} tickLine={false} interval={0} />
               <YAxis tick={CHART_TICK} axisLine={false} tickLine={false} width={52} tickFormatter={(v: number) => fmtMxnCompact(v)} />
               <ChartTooltip content={<NonZeroTooltipContent formatter={(v) => fmtMxn(Number(v))} />} />
               <Line type="monotone" dataKey="value" name="Monto" stroke={STRUCTURAL_NAVY} strokeWidth={2} connectNulls={false}
                 isAnimationActive={false}
-                dot={{ r: 4, fill: STRUCTURAL_NAVY, strokeWidth: 0, cursor: "pointer" }}
-                activeDot={{ r: 6, cursor: "pointer", onClick: (d: unknown) => {
-                  const idx = (d as { payload?: { index: number } })?.payload?.index
-                  if (idx === undefined) return
-                  const ids = year.team.byMonth[idx].ids[kind]
-                  if (ids.length) onPoint(kind, ids, `Equipo · ${MONTHS[idx]} ${year.year}`)
-                } }}>
+                dot={{ r: 4, fill: STRUCTURAL_NAVY, strokeWidth: 0 }}
+                activeDot={{ r: 6 }}>
                 <LabelList dataKey="value" position="top" fontSize={10} className="fill-foreground"
                   formatter={(v: number | null) => (v === null || v === 0 ? "" : fmtMxnCompact(v))} />
               </Line>

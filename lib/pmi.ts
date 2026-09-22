@@ -9,6 +9,7 @@
 import type { Appointment, Contact, Opportunity, Pauta } from "./types";
 import { localDay } from "./meta-attribution";
 import { isDePauta } from "./pauta";
+import { milestoneDateField } from "./pmi-stages";
 
 export type PmiIndicator = "leads" | "perfilamientos" | "citas" | "apartados" | "cierres";
 export const PMI_INDICATORS: readonly PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres"];
@@ -174,20 +175,20 @@ export function collectEvents(input: PmiInput, since: string, until: string): Pm
     events.push({ kind: "leads", day, advisor: advisorOf(c.assignedTo), id: c.id, monto: 0, pauta: pauta.has(c.id), estimated: false });
   }
 
+  // Perfilamiento: la bitácora (primera vez que cruzó la etapa). Apartado y
+  // cierre: SOLO los campos "Fecha de apartado" / "Fecha de cierre" de la
+  // oportunidad (lib/pmi-stages.ts). Sin campo no hay evento, aunque la etapa o
+  // la bitácora digan otra cosa — y por eso nunca son estimados.
   for (const opp of input.opportunities) {
-    const m = opp.milestones;
-    if (!m) continue;
     const advisor = advisorOf(opp.assignedTo);
-    const estimated = m.estimated === true;
-    const push = (kind: PmiIndicator, iso: string | undefined, monto: number) => {
-      if (!iso) return;
-      const day = localDay(iso);
-      if (!inRange(day)) return;
+    const push = (kind: PmiIndicator, day: string | null, monto: number, estimated: boolean) => {
+      if (!day || !inRange(day)) return;
       events.push({ kind, day, advisor, id: opp.id, monto, pauta: false, estimated });
     };
-    push("perfilamientos", m.perfilado, 0);
-    push("apartados", m.apartado, opp.value ?? 0);
-    push("cierres", m.cierre, opp.value ?? 0);
+    const m = opp.milestones;
+    if (m?.perfilado) push("perfilamientos", localDay(m.perfilado), 0, m.estimated === true);
+    push("apartados", milestoneDateField(opp, "apartado"), opp.value ?? 0, false);
+    push("cierres", milestoneDateField(opp, "cierre"), opp.value ?? 0, false);
   }
 
   for (const a of input.appointments) {

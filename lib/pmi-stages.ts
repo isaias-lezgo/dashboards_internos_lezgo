@@ -8,6 +8,7 @@
 // Grand Center y Balvanera. Una regla por número contaría inversiones futuras
 // como cierres.
 import type { Opportunity, Pipeline } from "./types";
+import { localDay } from "./meta-attribution";
 
 export type Milestone = "perfilado" | "apartado" | "cierre";
 export const MILESTONES: readonly Milestone[] = ["perfilado", "apartado", "cierre"];
@@ -72,4 +73,48 @@ export function projectHasMilestoneStages(pipelines: Pipeline[]): boolean {
   return pipelines.some((p) =>
     p.stages.some((s) => milestonesOfStage(s).has("apartado")),
   );
+}
+
+// ── Fechas de apartado y cierre: campos de la oportunidad ─────────────────────
+//
+// Desde 2026-09-21 los hitos de dinero NO salen de la bitácora ni de la etapa:
+// salen de dos campos personalizados de la OPORTUNIDAD que la consultoría
+// llena a mano — "Fecha de apartado" y "Fecha de cierre". Sin fecha no hay
+// apartado ni cierre, aunque la oportunidad esté en "06. Apartado": la etapa
+// dice dónde está hoy, el campo dice cuándo ocurrió, y el PMI cuenta eventos.
+// Solo la oportunidad, nunca el contacto — un contacto con dos oportunidades
+// no puede tener una sola fecha de apartado.
+//
+// El nombre se busca normalizado por palabras clave (fecha + apartado / cierre)
+// porque cada sub-cuenta capitaliza y acentúa distinto.
+export type DateMilestone = "apartado" | "cierre";
+const DATE_FIELD_TERMS: Record<DateMilestone, string[]> = {
+  apartado: ["fecha", "apartado"],
+  cierre: ["fecha", "cierre"],
+};
+
+// Convierte el valor del campo a día LOCAL `YYYY-MM-DD`. Un campo DATE de GHL
+// llega como fecha desnuda; `new Date("2026-09-21")` la leería como medianoche
+// UTC, que en México es el día 20 a las 18:00 — así que se toma tal cual. Solo
+// un valor con hora pasa por la zona horaria del panel.
+export function fieldDateToLocalDay(raw: string | string[] | undefined): string | null {
+  const v = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (!v) return null;
+  const bare = /^(\d{4}-\d{2}-\d{2})(?:$|T00:00:00(?:\.000)?Z$)/.exec(v);
+  if (bare) return bare[1];
+  if (Number.isNaN(new Date(v).getTime())) return null;
+  return localDay(v);
+}
+
+export function milestoneDateField(opp: Opportunity, kind: DateMilestone): string | null {
+  const fields = opp.customFieldsResolved;
+  if (!fields) return null;
+  const terms = DATE_FIELD_TERMS[kind];
+  for (const [name, raw] of Object.entries(fields)) {
+    const n = normalizeStage(name);
+    if (!terms.every((t) => n.includes(t))) continue;
+    const day = fieldDateToLocalDay(raw);
+    if (day) return day;
+  }
+  return null;
 }

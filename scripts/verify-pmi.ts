@@ -7,6 +7,8 @@ import {
   effectiveStage,
   milestonesOfStage,
   projectHasMilestoneStages,
+  milestoneDateField,
+  fieldDateToLocalDay,
 } from "../lib/pmi-stages";
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
@@ -138,7 +140,8 @@ function engineMain() {
     ],
     opportunities: [
       opp({ id: "o1", contactId: "c2", assignedTo: "Arely", stage: "06. Apartado", value: 3_988_119.69,
-        milestones: { perfilado: "2026-09-03T15:00:00.000Z", apartado: "2026-09-03T16:00:00.000Z" } }),
+        milestones: { perfilado: "2026-09-03T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-09-03" } }),
       opp({ id: "o2", contactId: "c3", stage: "02. Cliente Calificado",
         milestones: { perfilado: "2026-08-30T15:00:00.000Z", estimated: true } }),           // agosto: fuera
       opp({ id: "o3", contactId: "c9", assignedTo: "Eder", stage: "Lead Recibido" }),        // sin milestones (payload viejo)
@@ -187,11 +190,13 @@ function monthMain() {
     ],
     opportunities: [
       opp({ id: "o1", contactId: "a0", assignedTo: "Arely", stage: "06. Apartado", value: 3_988_119.69,
-        milestones: { perfilado: "2026-09-02T15:00:00.000Z", apartado: "2026-09-03T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-09-02T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-09-03" } }),
       opp({ id: "o2", contactId: "a1", assignedTo: "Arely", stage: "02. Cliente Calificado",
         milestones: { perfilado: "2026-09-09T15:00:00.000Z", estimated: true } }),
       opp({ id: "o3", contactId: "m0", assignedTo: "Monica", stage: "08. Proceso de Escritura", value: 3_265_823.51,
-        milestones: { perfilado: "2026-08-10T15:00:00.000Z", apartado: "2026-08-12T15:00:00.000Z", cierre: "2026-09-16T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-08-10T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-08-12", "Fecha de cierre": "2026-09-16" } }),
     ],
     appointments: [
       appt({ id: "ap1", assignedTo: "Arely", startTime: "2026-09-08T16:00:00-06:00" }),
@@ -253,11 +258,14 @@ function yearMain() {
     ],
     opportunities: [
       opp({ id: "o1", assignedTo: "Arely", value: 5_967_052.46, stage: "08. Proceso de Escritura",
-        milestones: { perfilado: "2026-05-01T15:00:00.000Z", apartado: "2026-05-10T15:00:00.000Z", cierre: "2026-07-10T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-05-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-05-10", "Fecha de cierre": "2026-07-10" } }),
       opp({ id: "o2", assignedTo: "Arely", value: 6_497_283.09, stage: "06. Apartado",
-        milestones: { perfilado: "2026-06-01T15:00:00.000Z", apartado: "2026-06-10T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-06-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-06-10" } }),
       opp({ id: "o3", assignedTo: "Monica", value: 3_145_022.6, stage: "10. Negocio Ganado",
-        milestones: { perfilado: "2025-12-01T15:00:00.000Z", apartado: "2025-12-10T15:00:00.000Z", cierre: "2026-01-20T15:00:00.000Z" } }),
+        milestones: { perfilado: "2025-12-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2025-12-10", "Fecha de cierre": "2026-01-20" } }),
     ],
     appointments: [],
     pautas: [],
@@ -328,11 +336,14 @@ function quarterMain() {
     ],
     opportunities: [
       opp({ id: "o1", assignedTo: "Arely", value: 5_967_052.46, stage: "08. Proceso de Escritura",
-        milestones: { perfilado: "2026-05-01T15:00:00.000Z", apartado: "2026-05-10T15:00:00.000Z", cierre: "2026-07-10T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-05-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-05-10", "Fecha de cierre": "2026-07-10" } }),
       opp({ id: "o2", assignedTo: "Arely", value: 6_497_283.09, stage: "06. Apartado",
-        milestones: { perfilado: "2026-06-01T15:00:00.000Z", apartado: "2026-06-10T15:00:00.000Z" } }),
+        milestones: { perfilado: "2026-06-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2026-06-10" } }),
       opp({ id: "o3", assignedTo: "Monica", value: 3_145_022.6, stage: "10. Negocio Ganado",
-        milestones: { perfilado: "2025-12-01T15:00:00.000Z", apartado: "2025-12-10T15:00:00.000Z", cierre: "2026-01-20T15:00:00.000Z" } }),
+        milestones: { perfilado: "2025-12-01T15:00:00.000Z" },
+        customFieldsResolved: { "Fecha de Apartado": "2025-12-10", "Fecha de cierre": "2026-01-20" } }),
     ],
     appointments: [],
     pautas: [],
@@ -390,9 +401,73 @@ function quarterMain() {
   assert.equal(q4.team.conversions.leadPerfil, null);
 }
 
+// Los hitos de dinero salen de los campos "Fecha de apartado" / "Fecha de
+// cierre" de la oportunidad, no de la etapa ni de la bitácora.
+function dateFieldsMain() {
+  // Una fecha desnuda es ese día local, no medianoche UTC (que en México sería
+  // el día anterior).
+  assert.equal(fieldDateToLocalDay("2026-09-21"), "2026-09-21");
+  assert.equal(fieldDateToLocalDay("2026-09-21T00:00:00.000Z"), "2026-09-21");
+  // Con hora real sí manda la zona del panel: 03:30Z del 22 es el 21 en México.
+  assert.equal(fieldDateToLocalDay("2026-09-22T03:30:00.000Z"), "2026-09-21");
+  assert.equal(fieldDateToLocalDay(""), null);
+  assert.equal(fieldDateToLocalDay(undefined), null);
+  assert.equal(fieldDateToLocalDay("no es fecha"), null);
+  assert.equal(fieldDateToLocalDay(["2026-09-21", "2026-09-22"]), "2026-09-21");
+
+  // Variantes de nombre por sub-cuenta: capitalización, acentos, "de" opcional.
+  for (const name of ["Fecha de apartado", "Fecha de Apartado", "FECHA APARTADO", "Fecha del apartado"]) {
+    assert.equal(milestoneDateField(opp({ customFieldsResolved: { [name]: "2026-09-03" } }), "apartado"), "2026-09-03", name);
+  }
+  for (const name of ["Fecha de cierre", "Fecha de Cierre", "Fecha cierre"]) {
+    assert.equal(milestoneDateField(opp({ customFieldsResolved: { [name]: "2026-09-16" } }), "cierre"), "2026-09-16", name);
+  }
+  // Un campo no se confunde con el otro, ni con otras fechas del CRM.
+  const both = opp({ customFieldsResolved: {
+    "Fecha de creación": "2026-01-01", "Fecha de apartado": "2026-09-03", "Fecha de cierre": "2026-09-16",
+  } });
+  assert.equal(milestoneDateField(both, "apartado"), "2026-09-03");
+  assert.equal(milestoneDateField(both, "cierre"), "2026-09-16");
+  assert.equal(milestoneDateField(opp({ customFieldsResolved: { "Fecha de creación": "2026-01-01" } }), "apartado"), null);
+  assert.equal(milestoneDateField(opp({}), "cierre"), null);
+  // Campo presente pero vacío = sin fecha.
+  assert.equal(milestoneDateField(opp({ customFieldsResolved: { "Fecha de apartado": "  " } }), "apartado"), null);
+
+  // En el motor: la etapa "06. Apartado" y una fila de bitácora NO cuentan sin
+  // el campo; con el campo cuentan en su día local y nunca son estimados.
+  const noField = collectEvents({
+    contacts: [], appointments: [], pautas: [],
+    opportunities: [opp({ id: "o1", stage: "06. Apartado", value: 100,
+      milestones: { perfilado: "2026-09-03T15:00:00.000Z", apartado: "2026-09-03T15:00:00.000Z", estimated: true } })],
+  }, "2026-09-01", "2026-09-30");
+  assert.deepEqual(noField.map((e) => e.kind), ["perfilamientos"]);
+  assert.equal(noField[0].estimated, true);
+
+  const withField = collectEvents({
+    contacts: [], appointments: [], pautas: [],
+    opportunities: [opp({ id: "o1", stage: "06. Apartado", value: 100,
+      milestones: { perfilado: "2026-09-03T15:00:00.000Z", estimated: true },
+      customFieldsResolved: { "Fecha de apartado": "2026-09-30", "Fecha de cierre": "2026-10-01" } })],
+  }, "2026-09-01", "2026-09-30");
+  const ap = withField.find((e) => e.kind === "apartados");
+  assert.ok(ap, "apartado del 30 de septiembre, dentro");
+  assert.equal(ap.day, "2026-09-30");
+  assert.equal(ap.monto, 100);
+  assert.equal(ap.estimated, false);
+  assert.equal(withField.some((e) => e.kind === "cierres"), false, "cierre del 1 de octubre, fuera");
+  // Sin bitácora (payload viejo) el campo sigue contando.
+  const noLedger = collectEvents({
+    contacts: [], appointments: [], pautas: [],
+    opportunities: [opp({ id: "o1", stage: "Lead Recibido", value: 7, customFieldsResolved: { "Fecha de cierre": "2026-09-16" } })],
+  }, "2026-09-01", "2026-09-30");
+  assert.deepEqual(noLedger.map((e) => [e.kind, e.day, e.monto]), [["cierres", "2026-09-16", 7]]);
+}
+
 async function main() {
   stagesMain();
   console.log("✅ verify:pmi — etapas");
+  dateFieldsMain();
+  console.log("✅ verify:pmi — fechas de apartado y cierre");
   engineMain();
   console.log("✅ verify:pmi — motor");
   monthMain();

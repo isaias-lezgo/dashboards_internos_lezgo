@@ -621,10 +621,21 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   `cierre` = escritura · ganado · entregado. Una perdida cuenta por su campo "Última Etapa
   en el Pipeline". `projectHasMilestoneStages` exige una etapa de **apartado**, no
   cualquier hito: "Primera Cita" (Lezgo Suite, pipeline de servicios) cae en "cita".
+- **Apartado y cierre salen de dos campos de la OPORTUNIDAD, no de la etapa ni de la
+  bitácora** (2026-09-21): `"Fecha de apartado"` y `"Fecha de cierre"`, que la consultoría
+  llena a mano. `milestoneDateField()` en `lib/pmi-stages.ts` los busca por palabras clave
+  normalizadas (*fecha* + *apartado* / *cierre*), solo en la oportunidad — nunca en el
+  contacto, que puede tener varias. **Sin fecha no hay evento**: una oportunidad en
+  "06. Apartado" sin el campo no cuenta como apartado, y esos dos hitos nunca son
+  `estimated`. Un campo DATE llega como fecha desnuda y se toma tal cual
+  (`fieldDateToLocalDay`): `new Date("2026-09-21")` sería medianoche UTC, el día 20 en
+  México. La bitácora sigue escribiendo sus filas de apartado/cierre (insert-only, hoy
+  sin lector) y `pmi:backfill` sigue existiendo; solo `perfilamientos` las lee.
 - **`opportunity_milestones` NO es desechable.** GHL no guarda cuándo una oportunidad
   entró a su etapa y `closedAt` viene vacío, así que `syncProject` anota la PRIMERA vez
   que cada oportunidad cruza cada hito (`lib/pmi-ledger.ts` puro, `pmi-ledger-store.ts`
-  SQL). Es la única tabla del panel con historia irrecuperable desde GHL: insert-only,
+  SQL). Desde 2026-09-21 el PMI solo le lee `perfilado`; apartado y cierre van por campo
+  (arriba). Es la única tabla del panel con historia irrecuperable desde GHL: insert-only,
   `ON CONFLICT DO NOTHING`, la app nunca la actualiza ni borra, y un hito **no se retira**
   aunque la oportunidad retroceda — un apartado que se cae sigue siendo apartado de su
   mes, que es como lo cuenta el PMI. **La primera vez** que un proyecto entra a la
@@ -667,6 +678,11 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   dice de él. Las flechas mueven ±3 meses sobre el mismo estado `month`. `PmiFunnel`
   recibe `total / objective / conversions` y `PmiPeriodTable` (`pmi-week-table.tsx`)
   columnas genéricas: una tarjeta por período, no dos copias.
+- **El clic de las líneas va en el chart, no en el punto** (`MonthlyMoneyLine`,
+  `TrendLine`): `onClick` del `LineChart` con `activePayload`, como `chat-chart.tsx`. El
+  `activeDot.onClick` anterior exigía atinarle a un círculo de 4 px. El cursor va en
+  `style`, no en `className`: Recharts pone `cursor: default` inline en el wrapper y una
+  clase no lo vence.
 - **Las gráficas del Excel** (2026-09-19): embudo mensual (`pmi-funnel.tsx`), rankings con
   carita (`pmi-ranking-chart.tsx`, uno para mes, trimestre y año), líneas mensuales y
   trimestres (`pmi-year-charts.tsx`; `PmiYear.quarters` en el motor, meta del trimestre =

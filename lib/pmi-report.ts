@@ -119,7 +119,7 @@ function estimatedCallout(count: number): ReportSection[] {
     title: "Nota sobre las fechas",
     explanation: "Aviso metodológico, no un resultado.",
     ai: false,
-    blocks: [{ t: "callout", style: "info", text: `${count} hitos del período tienen fecha estimada: son anteriores al arranque de la bitácora y llevan la fecha de su última edición en el CRM.` }],
+    blocks: [{ t: "callout", style: "info", text: `${count} perfilamientos del período tienen fecha estimada: son anteriores al arranque de la bitácora y llevan la fecha de su última edición en el CRM. Apartados y cierres salen de los campos "Fecha de apartado" y "Fecha de cierre" de la oportunidad y nunca se estiman.` }],
   }];
 }
 

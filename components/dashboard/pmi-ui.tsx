@@ -152,8 +152,9 @@ export function EstimatedNote({ count }: { count: number }) {
     <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
       <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
       <span>
-        {count} {count === 1 ? "hito tiene" : "hitos tienen"} fecha estimada: son anteriores al arranque de la
-        bitácora y llevan la fecha de su última edición en el CRM.
+        {count} {count === 1 ? "perfilamiento tiene" : "perfilamientos tienen"} fecha estimada: son anteriores al
+        arranque de la bitácora y llevan la fecha de su última edición en el CRM. Apartados y cierres salen de los
+        campos "Fecha de apartado" y "Fecha de cierre" de la oportunidad y nunca se estiman.
       </span>
     </p>
   )
