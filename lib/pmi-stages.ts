@@ -106,6 +106,22 @@ export function fieldDateToLocalDay(raw: string | string[] | undefined): string 
   return localDay(v);
 }
 
+// La mitad del sync: un DATE de oportunidad llega en `fieldValueDate` como epoch
+// en ms a la MEDIANOCHE UTC del día elegido (medido 2026-09-21 en Lezgo Suite:
+// 1789948800000 = 2026-09-21T00:00:00Z). Se guarda como `YYYY-MM-DD` en UTC — el
+// día que la persona escogió —, que `fieldDateToLocalDay` toma tal cual. Pasarlo
+// por hora local lo correría al día anterior en México.
+export function epochToUtcDay(v: unknown): string | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  if (!Number.isFinite(n)) {
+    // Una cadena ISO ya formada conserva el día que trae.
+    const m = typeof v === "string" ? /^(\d{4}-\d{2}-\d{2})/.exec(v.trim()) : null;
+    return m ? m[1] : undefined;
+  }
+  const d = new Date(n);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString().slice(0, 10);
+}
+
 export function milestoneDateField(opp: Opportunity, kind: DateMilestone): string | null {
   const fields = opp.customFieldsResolved;
   if (!fields) return null;

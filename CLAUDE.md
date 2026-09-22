@@ -627,9 +627,12 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   normalizadas (*fecha* + *apartado* / *cierre*), solo en la oportunidad — nunca en el
   contacto, que puede tener varias. **Sin fecha no hay evento**: una oportunidad en
   "06. Apartado" sin el campo no cuenta como apartado, y esos dos hitos nunca son
-  `estimated`. Un campo DATE llega como fecha desnuda y se toma tal cual
-  (`fieldDateToLocalDay`): `new Date("2026-09-21")` sería medianoche UTC, el día 20 en
-  México. La bitácora sigue escribiendo sus filas de apartado/cierre (insert-only, hoy
+  `estimated`. **Un DATE de oportunidad llega en `fieldValueDate` como epoch ms a la
+  medianoche UTC del día elegido** (medido: `1789948800000` = 2026-09-21T00:00Z), llave
+  que `resolveCustomFields` no leía; `epochToUtcDay` lo guarda como `YYYY-MM-DD` en UTC
+  y `fieldDateToLocalDay` lo toma tal cual — pasarlo por hora local lo correría al día
+  20 en México. Los seis proyectos ya tienen los dos campos (creados 2026-09-21); la
+  consultoría los llena a mano. La bitácora sigue escribiendo sus filas de apartado/cierre (insert-only, hoy
   sin lector) y `pmi:backfill` sigue existiendo; solo `perfilamientos` las lee.
 - **`opportunity_milestones` NO es desechable.** GHL no guarda cuándo una oportunidad
   entró a su etapa y `closedAt` viene vacío, así que `syncProject` anota la PRIMERA vez

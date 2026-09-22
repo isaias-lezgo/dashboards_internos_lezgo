@@ -9,6 +9,7 @@ import {
   projectHasMilestoneStages,
   milestoneDateField,
   fieldDateToLocalDay,
+  epochToUtcDay,
 } from "../lib/pmi-stages";
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
@@ -404,6 +405,16 @@ function quarterMain() {
 // Los hitos de dinero salen de los campos "Fecha de apartado" / "Fecha de
 // cierre" de la oportunidad, no de la etapa ni de la bitácora.
 function dateFieldsMain() {
+  // El sync: GHL manda el DATE como epoch ms a medianoche UTC del día elegido
+  // (valor real de Lezgo Suite). Debe quedar el día elegido, no el anterior.
+  assert.equal(epochToUtcDay(1789948800000), "2026-09-21");
+  assert.equal(epochToUtcDay("1789948800000"), "2026-09-21");
+  assert.equal(epochToUtcDay("2026-09-21T00:00:00.000Z"), "2026-09-21");
+  assert.equal(epochToUtcDay("basura"), undefined);
+  assert.equal(epochToUtcDay(null), undefined);
+  // Ida y vuelta: lo que el sync guarda, el PMI lo lee como el mismo día local.
+  assert.equal(fieldDateToLocalDay(epochToUtcDay(1789948800000)), "2026-09-21");
+
   // Una fecha desnuda es ese día local, no medianoche UTC (que en México sería
   // el día anterior).
   assert.equal(fieldDateToLocalDay("2026-09-21"), "2026-09-21");

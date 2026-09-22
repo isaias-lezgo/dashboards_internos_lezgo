@@ -31,6 +31,7 @@ import { fetchMetaAds, MetaApiError } from "@/lib/meta-client";
 import { historyWindow } from "@/lib/meta-normalize";
 import { oppAdId, PANEL_TIME_ZONE } from "@/lib/meta-attribution";
 import { reconcileMilestones } from "@/lib/pmi-ledger";
+import { epochToUtcDay } from "@/lib/pmi-stages";
 import { readMilestones, insertMilestones } from "@/lib/pmi-ledger-store";
 import { isDbConfigured } from "@/lib/db";
 import type {
@@ -77,6 +78,7 @@ function resolveCustomFields(
         fieldValue?: unknown;
         fieldValueString?: unknown;
         fieldValueArray?: unknown;
+        fieldValueDate?: unknown;
       }>
     | undefined,
   map: Map<string, string>
@@ -93,6 +95,17 @@ function resolveCustomFields(
     // production, 1,528 values in Plaza Bosques and 2,280 in Condesa, among them
     // the opportunity-level "Origen de Lead", which is why that criterion always
     // silently fell back to the contact's copy.
+    // Un DATE de oportunidad llega bajo `fieldValueDate` como epoch en ms, a la
+    // MEDIANOCHE UTC del día elegido (medido 2026-09-21 en Lezgo Suite:
+    // 1789948800000 = 2026-09-21T00:00:00Z). Se guarda como `YYYY-MM-DD` en UTC
+    // — el día que la persona escogió —, nunca convertido a hora local, que en
+    // México lo correría al día anterior. Sin esta rama "Fecha de Apartado" /
+    // "Fecha de Cierre" (lib/pmi-stages.ts) se perdían en el sync.
+    if (f.fieldValueDate !== undefined && f.fieldValueDate !== null) {
+      const day = epochToUtcDay(f.fieldValueDate);
+      if (day) result[name] = day;
+      continue;
+    }
     const raw = f.fieldValue ?? f.fieldValueArray ?? f.fieldValueString ?? f.value;
     if (raw === undefined || raw === null) continue;
     if (Array.isArray(raw)) {
