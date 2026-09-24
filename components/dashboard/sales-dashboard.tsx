@@ -476,7 +476,16 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
     // los totales por columna sigan sumando el total.
     const contactById = new Map(lookupContacts.map((c) => [c.id, c]))
     const colOf = matrixBy === "origen"
-      ? (o: Opportunity) => originsOfOpportunity(o, contactById.get(o.contactId)).join(" + ")
+      ? (o: Opportunity) => {
+          // Sin repetidos: dos campos "origen de lead" en la misma oportunidad
+          // (o un multivalor con el valor duplicado) daban "Llamada + Llamada".
+          const seen = new Map<string, string>()
+          for (const v of originsOfOpportunity(o, contactById.get(o.contactId))) {
+            const k = v.toLowerCase()
+            if (!seen.has(k)) seen.set(k, v)
+          }
+          return [...seen.values()].join(" + ")
+        }
       : (o: Opportunity) => o.assignedTo || "Sin asesor"
     const colTotals = new Map<string, number>()
     for (const o of opportunities) colTotals.set(colOf(o), (colTotals.get(colOf(o)) ?? 0) + 1)
