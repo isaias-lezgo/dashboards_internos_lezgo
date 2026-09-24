@@ -26,6 +26,7 @@ import type { Opportunity, Contact, Call, Message, Task, Appointment, Pauta, Pip
 import { Users, TrendingUp, Target, DollarSign, CalendarDays } from "lucide-react"
 import { PLATFORM_COLORS, PLATFORM_ORDER, platformLabel } from "@/lib/source-platform"
 import { isWonOpp } from "@/lib/opportunity-status"
+import { originsOfOpportunity, SIN_ORIGEN } from "@/lib/dashboard-filters"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
 import {
   BRAND_AMBER,
@@ -468,14 +469,21 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
         : opportunities.filter((o) => o.status === status)
       if (opps.length > 0) rows.push({ label, dot, kind, opps })
     }
+    // "Por origen" lee el campo "Origen de lead" del CRM, el mismo que el filtro
+    // de Origen de la barra (originsOfOpportunity), no platformLabel: ese colapsa
+    // todo lo que no es una red social en "Otro". Un campo de opción múltiple une
+    // sus valores en una sola columna, para que cada oportunidad caiga en una y
+    // los totales por columna sigan sumando el total.
+    const contactById = new Map(lookupContacts.map((c) => [c.id, c]))
     const colOf = matrixBy === "origen"
-      ? platformLabel
+      ? (o: Opportunity) => originsOfOpportunity(o, contactById.get(o.contactId)).join(" + ")
       : (o: Opportunity) => o.assignedTo || "Sin asesor"
     const colTotals = new Map<string, number>()
     for (const o of opportunities) colTotals.set(colOf(o), (colTotals.get(colOf(o)) ?? 0) + 1)
-    const cols = matrixBy === "origen"
-      ? PLATFORM_ORDER.filter((p) => colTotals.has(p))
-      : [...colTotals.keys()].sort((a, b) => (colTotals.get(b) ?? 0) - (colTotals.get(a) ?? 0))
+    // Por volumen desc; el residuo "Sin origen" al final.
+    const cols = [...colTotals.keys()].sort((a, b) =>
+      (a === SIN_ORIGEN ? 1 : 0) - (b === SIN_ORIGEN ? 1 : 0) ||
+      (colTotals.get(b) ?? 0) - (colTotals.get(a) ?? 0))
     const cells = rows.map((r) => cols.map((c) => r.opps.filter((o) => colOf(o) === c)))
     let liveMax = 1
     let lostMax = 1
@@ -486,7 +494,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
       }
     })
     return { rows, cols, cells, colTotals, liveMax, lostMax, total: opportunities.length }
-  }, [opportunities, pipelines, matrixBy])
+  }, [opportunities, pipelines, matrixBy, lookupContacts])
 
   // PDF report spec from the same memos the charts render (computed on click).
   // One section per card rendered below, in the same order and the same chart
