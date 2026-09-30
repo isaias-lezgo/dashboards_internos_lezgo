@@ -22,13 +22,14 @@ const STAGES: { kind: PmiIndicator; width: string; conversion: keyof PmiConversi
   { kind: "citas", width: "76%", conversion: "citaApartado" },
   { kind: "apartados", width: "64%", conversion: "apartadoCierre" },
   { kind: "cierres", width: "52%", conversion: null },
+  { kind: "ganados", width: "40%", conversion: null },
 ]
 
 const CONVERSION_SHORT: Record<keyof PmiConversions, string> = {
   leadPerfil: "Leads a perfilamientos",
   perfilCita: "Perfilamientos a citas",
   citaApartado: "Citas a apartados",
-  apartadoCierre: "Apartados a cierres",
+  apartadoCierre: "Apartados a proceso de cierre",
 }
 
 // El relleno del escalón usa el semáforo como fondo tenue; el texto se queda en
@@ -59,8 +60,10 @@ export function PmiFunnel({
 }) {
   const t = total
   const o = objective
-  const money = (kind: PmiIndicator) => (kind === "apartados" ? t.montoApartados : kind === "cierres" ? t.montoCierres : null)
-  const moneyObjective = (kind: PmiIndicator) => (kind === "apartados" ? o.montoApartados : kind === "cierres" ? o.montoCierres : null)
+  const money = (kind: PmiIndicator) =>
+    kind === "apartados" ? t.montoApartados : kind === "cierres" ? t.montoCierres : kind === "ganados" ? t.montoGanados : null
+  const moneyObjective = (kind: PmiIndicator) =>
+    kind === "apartados" ? o.montoApartados : kind === "cierres" ? o.montoCierres : kind === "ganados" ? o.montoGanados : null
 
   return (
     <DashboardCard className="flex h-full flex-col">
@@ -70,7 +73,7 @@ export function PmiFunnel({
           <>
             {advisorName && <AdvisorAvatar name={advisorName} className="h-7 w-7 text-[11px]" />}
             <ScopePill label="Objetivos"
-              tooltip={`Objetivos fijos por asesor y mes: leads 40, perfilamientos 16, citas 8, apartados 2 / $3M, cierres 2 / $3M. ${periodNote} El relleno de cada escalón es el avance contra ese objetivo (en apartados y cierres, por monto).`} />
+              tooltip={`Objetivos fijos por asesor y mes: leads 40, perfilamientos 16, citas 8, apartados 2 / $3M, en proceso de cierre 2 / $3M; Negocio Ganado no lleva objetivo. ${periodNote} El relleno de cada escalón es el avance contra ese objetivo (en apartados y proceso de cierre, por monto).`} />
           </>
         }
       />
@@ -105,7 +108,7 @@ export function PmiFunnel({
                       ? "cursor-pointer hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       : "cursor-default",
                   )}
-                  aria-label={`${INDICATOR_LABELS[kind]}: ${fmtInt(value)}, objetivo ${fmtInt(o[kind])}`}
+                  aria-label={`${INDICATOR_LABELS[kind]}: ${fmtInt(value)}${o[kind] > 0 ? `, objetivo ${fmtInt(o[kind])}` : ""}`}
                 >
                   <span aria-hidden className={cn("absolute inset-y-0 left-0", fillClass(tone))} style={{ width: `${fillPct}%` }} />
                   <span className="relative flex items-center gap-3 px-3 py-2.5">
@@ -114,7 +117,7 @@ export function PmiFunnel({
                       <span className="truncate text-[11px] text-muted-foreground">
                         {kind === "leads" && `${fmtInt(t.leadsPauta)} de pauta · `}
                         {m !== null && `${fmtMxn(m)} · `}
-                        objetivo {fmtInt(o[kind])}{mo !== null && ` · ${fmtMxn(mo)}`}
+                        {o[kind] > 0 ? <>objetivo {fmtInt(o[kind])}{mo !== null && mo > 0 && ` · ${fmtMxn(mo)}`}</> : "sin objetivo"}
                       </span>
                     </span>
                     <span className="text-2xl font-semibold tabular-nums leading-none">{fmtInt(value)}</span>

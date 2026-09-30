@@ -14,7 +14,7 @@ const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "
 
 type MoneyKind = "apartados" | "cierres"
 const MONEY_KEY: Record<MoneyKind, "montoApartados" | "montoCierres"> = { apartados: "montoApartados", cierres: "montoCierres" }
-const MONEY_TITLE: Record<MoneyKind, string> = { apartados: "Apartados por mes", cierres: "Cierres por mes" }
+const MONEY_TITLE: Record<MoneyKind, string> = { apartados: "Apartados por mes", cierres: "En proceso de cierre por mes" }
 
 // Un mes que empieza después de hoy no ha ocurrido: no lleva punto, no lleva
 // cero. La misma regla que la tabla anual.
@@ -36,7 +36,7 @@ export function MonthlyMoneyLine({ year, kind, onPoint }: { year: PmiYear; kind:
   return (
     <DashboardCard>
       <ChartCardHeader title={`${MONEY_TITLE[kind]} · ${year.year}`}
-        actions={<ScopePill label="Equipo" tooltip={`Monto ${kind === "apartados" ? "apartado" : "cerrado"} por el equipo en cada mes, según el campo "${kind === "apartados" ? "Fecha de apartado" : "Fecha de cierre"}" de cada oportunidad; sin fecha no cuenta. Los meses que no han ocurrido no llevan punto. Clic en un mes para ver sus oportunidades.`} />} />
+        actions={<ScopePill label="Equipo" tooltip={`Monto ${kind === "apartados" ? "apartado" : "en proceso de cierre"} por el equipo en cada mes, según el campo "${kind === "apartados" ? "Fecha de apartado" : "Fecha de cierre"}" de cada oportunidad; sin fecha no cuenta. Los meses que no han ocurrido no llevan punto. Clic en un mes para ver sus oportunidades.`} />} />
       <ChartCardContent>
         {occurred.length === 0 ? (
           <ChartEmpty message="El año no ha empezado." />
@@ -81,7 +81,7 @@ function QuarterFooter({ q, kind }: { q: PmiQuarter; kind: MoneyKind }) {
 }
 
 export function QuarterRankings({ year, kind, onBar }: { year: PmiYear; kind: MoneyKind; onBar: (name: string, q: PmiQuarter) => void }) {
-  const label = kind === "apartados" ? "Apartados" : "Cierres"
+  const label = kind === "apartados" ? "Apartados" : "Proceso de cierre"
   return (
     // Dos columnas y no cuatro: con nueve asesores (Yconia) una tarjeta de un
     // cuarto de ancho encima las caritas y los nombres.

@@ -9,10 +9,10 @@
 import type { Appointment, Contact, Opportunity, Pauta } from "./types";
 import { localDay } from "./meta-attribution";
 import { isDePauta } from "./pauta";
-import { milestoneDateField } from "./pmi-stages";
+import { effectiveStage, isGanadoStage, milestoneDateField } from "./pmi-stages";
 
-export type PmiIndicator = "leads" | "perfilamientos" | "citas" | "apartados" | "cierres";
-export const PMI_INDICATORS: readonly PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres"];
+export type PmiIndicator = "leads" | "perfilamientos" | "citas" | "apartados" | "cierres" | "ganados";
+export const PMI_INDICATORS: readonly PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres", "ganados"];
 
 export interface PmiObjectives {
   leads: number;
@@ -22,6 +22,8 @@ export interface PmiObjectives {
   montoApartados: number;
   cierres: number;
   montoCierres: number;
+  ganados: number;
+  montoGanados: number;
 }
 
 // Por asesor y por mes, los del PMI de septiembre 2026. Fijos a propósito
@@ -34,6 +36,10 @@ export const PMI_OBJECTIVES: PmiObjectives = {
   montoApartados: 3_000_000,
   cierres: 2,
   montoCierres: 3_000_000,
+  // Negocio Ganado se cuenta sin meta (decisión de producto, 2026-09-30): con
+  // objetivo 0 el semáforo devuelve null y la UI muestra "—" en vez de avance.
+  ganados: 0,
+  montoGanados: 0,
 };
 
 export const PMI_CONVERSION_TARGETS = {
@@ -66,6 +72,8 @@ export function scaleObjectives(base: PmiObjectives, factor: number): PmiObjecti
     montoApartados: base.montoApartados * factor,
     cierres: base.cierres * factor,
     montoCierres: base.montoCierres * factor,
+    ganados: base.ganados * factor,
+    montoGanados: base.montoGanados * factor,
   };
 }
 
@@ -138,7 +146,7 @@ export interface PmiEvent {
   day: string; // local
   advisor: string; // UNASSIGNED cuando no hay
   id: string; // contacto, oportunidad o cita según kind
-  monto: number; // solo apartados / cierres
+  monto: number; // solo apartados / cierres / ganados
   pauta: boolean; // solo leads
   estimated: boolean; // solo hitos
 }
@@ -188,11 +196,27 @@ export function collectEvents(input: PmiInput, since: string, until: string): Pm
     const m = opp.milestones;
     if (m?.perfilado) push("perfilamientos", localDay(m.perfilado), 0, m.estimated === true);
     push("apartados", milestoneDateField(opp, "apartado"), opp.value ?? 0, false);
-    push("cierres", milestoneDateField(opp, "cierre"), opp.value ?? 0, false);
+    const cierre = milestoneDateField(opp, "cierre");
+    push("cierres", cierre, opp.value ?? 0, false);
+    // Negocio Ganado: la misma "Fecha de cierre", pero solo si la oportunidad
+    // ya está en Negocio Ganado / Entregado. Es un subconjunto de "en proceso
+    // de cierre", que cuenta toda oportunidad con la fecha.
+    if (isGanadoStage(effectiveStage(opp))) push("ganados", cierre, opp.value ?? 0, false);
   }
 
+  // Cita efectiva: solo la PRIMERA cita 'showed' de cada lead, sobre el historial
+  // completo. Un lead que vuelve a una segunda o tercera visita no es otra cita
+  // efectiva para el embudo, y si su primera cayó antes de la ventana no cuenta
+  // en ésta. Una cita sin contacto no se puede deduplicar y cuenta sola.
+  const firstShowed = new Map<string, Appointment>();
+  const orphanShowed: Appointment[] = [];
   for (const a of input.appointments) {
     if (a.status !== "showed" || !a.startTime) continue;
+    if (!a.contactId) { orphanShowed.push(a); continue; }
+    const prev = firstShowed.get(a.contactId);
+    if (!prev || new Date(a.startTime).getTime() < new Date(prev.startTime).getTime()) firstShowed.set(a.contactId, a);
+  }
+  for (const a of [...firstShowed.values(), ...orphanShowed]) {
     const day = localDay(a.startTime);
     if (!inRange(day)) continue;
     events.push({ kind: "citas", day, advisor: advisorOf(a.assignedTo), id: a.id, monto: 0, pauta: false, estimated: false });
@@ -212,6 +236,8 @@ export interface PmiCounts {
   montoApartados: number;
   cierres: number;
   montoCierres: number;
+  ganados: number;
+  montoGanados: number;
   // Para el drill-down: contactos (leads), oportunidades (perfil/apartados/
   // cierres) y citas.
   ids: Record<PmiIndicator, string[]>;
@@ -220,8 +246,8 @@ export interface PmiCounts {
 export function emptyCounts(): PmiCounts {
   return {
     leads: 0, leadsPauta: 0, perfilamientos: 0, citas: 0,
-    apartados: 0, montoApartados: 0, cierres: 0, montoCierres: 0,
-    ids: { leads: [], perfilamientos: [], citas: [], apartados: [], cierres: [] },
+    apartados: 0, montoApartados: 0, cierres: 0, montoCierres: 0, ganados: 0, montoGanados: 0,
+    ids: { leads: [], perfilamientos: [], citas: [], apartados: [], cierres: [], ganados: [] },
   };
 }
 
@@ -231,6 +257,7 @@ export function addEvent(c: PmiCounts, e: PmiEvent): void {
   if (e.kind === "leads" && e.pauta) c.leadsPauta += 1;
   if (e.kind === "apartados") c.montoApartados += e.monto;
   if (e.kind === "cierres") c.montoCierres += e.monto;
+  if (e.kind === "ganados") c.montoGanados += e.monto;
 }
 
 export function sumCounts(list: PmiCounts[]): PmiCounts {
@@ -239,6 +266,7 @@ export function sumCounts(list: PmiCounts[]): PmiCounts {
     out.leads += c.leads; out.leadsPauta += c.leadsPauta; out.perfilamientos += c.perfilamientos;
     out.citas += c.citas; out.apartados += c.apartados; out.montoApartados += c.montoApartados;
     out.cierres += c.cierres; out.montoCierres += c.montoCierres;
+    out.ganados += c.ganados; out.montoGanados += c.montoGanados;
     for (const k of PMI_INDICATORS) out.ids[k].push(...c.ids[k]);
   }
   return out;
@@ -458,6 +486,7 @@ function divideCounts(c: PmiCounts, n: number): PmiCounts | null {
   out.leads = c.leads / n; out.leadsPauta = c.leadsPauta / n; out.perfilamientos = c.perfilamientos / n;
   out.citas = c.citas / n; out.apartados = c.apartados / n; out.montoApartados = c.montoApartados / n;
   out.cierres = c.cierres / n; out.montoCierres = c.montoCierres / n;
+  out.ganados = c.ganados / n; out.montoGanados = c.montoGanados / n;
   return out;
 }
 
@@ -567,6 +596,8 @@ export function buildPmiYear(input: PmiInput, year: number, now: Date = new Date
       montoApartados: c.montoApartados / o.montoApartados,
       cierres: c.cierres / o.cierres,
       montoCierres: c.montoCierres / o.montoCierres,
+      ganados: NaN, // sin meta: fmtPct lo muestra como "—"
+      montoGanados: NaN,
     };
   });
 

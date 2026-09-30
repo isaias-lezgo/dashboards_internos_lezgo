@@ -10,6 +10,7 @@ import {
   milestoneDateField,
   fieldDateToLocalDay,
   epochToUtcDay,
+  isGanadoStage,
 } from "../lib/pmi-stages";
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
@@ -166,6 +167,20 @@ function engineMain() {
     "perfilamientos:o1:Arely:2026-09-03",
   ]);
   assert.equal(events.find((e) => e.id === "c2")?.pauta, true, "de pauta por la opp con tráfico pagado");
+
+  // Cita efectiva = la PRIMERA 'showed' de cada lead, sobre el historial completo.
+  const repeat = collectEvents({
+    contacts: [], opportunities: [], pautas: [],
+    appointments: [
+      appt({ id: "r2", contactId: "cR", status: "showed", startTime: "2026-09-20T16:00:00-06:00" }),
+      appt({ id: "r1", contactId: "cR", status: "showed", startTime: "2026-09-05T16:00:00-06:00" }),
+      appt({ id: "r0", contactId: "cR", status: "noshow", startTime: "2026-09-01T16:00:00-06:00" }),
+      appt({ id: "p1", contactId: "cP", status: "showed", startTime: "2026-08-28T16:00:00-06:00" }),
+      appt({ id: "p2", contactId: "cP", status: "showed", startTime: "2026-09-10T16:00:00-06:00" }),
+    ],
+  }, "2026-09-01", "2026-09-30");
+  assert.deepEqual(repeat.map((e) => e.id), ["r1"],
+    "dos 'showed' del mismo lead cuentan una (la primera, no la de la lista); la primera de cP fue en agosto");
   assert.equal(events.find((e) => e.id === "c3")?.pauta, false);
   assert.equal(events.find((e) => e.kind === "apartados")?.monto, 3_988_119.69);
 
@@ -201,7 +216,7 @@ function monthMain() {
     ],
     appointments: [
       appt({ id: "ap1", assignedTo: "Arely", startTime: "2026-09-08T16:00:00-06:00" }),
-      appt({ id: "ap2", assignedTo: "Arely", startTime: "2026-09-22T16:00:00-06:00" }),
+      appt({ id: "ap2", contactId: "a2", assignedTo: "Arely", startTime: "2026-09-22T16:00:00-06:00" }),
     ],
     pautas: [],
   };
@@ -474,11 +489,51 @@ function dateFieldsMain() {
   assert.deepEqual(noLedger.map((e) => [e.kind, e.day, e.monto]), [["cierres", "2026-09-16", 7]]);
 }
 
+// Negocio Ganado: la misma "Fecha de cierre", solo si la etapa ya es Negocio
+// Ganado / Entregado. Es un subconjunto de "en proceso de cierre".
+function ganadosMain() {
+  assert.equal(isGanadoStage("10. Negocio Ganado"), true);
+  assert.equal(isGanadoStage("09. Negocio Ganado"), true);
+  assert.equal(isGanadoStage("11. Entregado"), true);
+  assert.equal(isGanadoStage("08. Proceso de Escritura"), false);
+  assert.equal(isGanadoStage("09. Siguiente Escritura"), false);
+  assert.equal(isGanadoStage("Negocio Perdido"), false);
+  assert.equal(isGanadoStage(null), false);
+
+  const fecha = { "Fecha de cierre": "2026-09-16" };
+  const events = collectEvents({
+    contacts: [], appointments: [], pautas: [],
+    opportunities: [
+      opp({ id: "escritura", stage: "08. Proceso de Escritura", value: 10, customFieldsResolved: fecha }),
+      opp({ id: "ganado", stage: "10. Negocio Ganado", value: 20, customFieldsResolved: fecha }),
+      opp({ id: "entregado", stage: "11. Entregado", value: 30, customFieldsResolved: fecha }),
+      opp({ id: "sin-fecha", stage: "10. Negocio Ganado", value: 40 }),
+      // Perdida después de ganar: cuenta por su última etapa, como los demás hitos.
+      opp({ id: "perdida", stage: "Negocio Perdido", status: "lost", value: 50,
+        customFieldsResolved: { ...fecha, "Última Etapa en el Pipeline": "10. Negocio Ganado" } }),
+    ],
+  }, "2026-09-01", "2026-09-30");
+  const ids = (k: string) => events.filter((e) => e.kind === k).map((e) => e.id).sort();
+  assert.deepEqual(ids("cierres"), ["entregado", "escritura", "ganado", "perdida"]);
+  assert.deepEqual(ids("ganados"), ["entregado", "ganado", "perdida"], "sin fecha no cuenta; escritura no es ganado");
+
+  const c = emptyCounts();
+  for (const e of events) addEvent(c, e);
+  assert.equal(c.ganados, 3);
+  assert.equal(c.montoGanados, 100);
+  assert.equal(c.montoCierres, 110);
+  // Sin objetivo: el semáforo no colorea y el año no inventa un % de meta.
+  assert.equal(PMI_OBJECTIVES.ganados, 0);
+  assert.equal(semaphore(c.ganados, PMI_OBJECTIVES.ganados), null);
+}
+
 async function main() {
   stagesMain();
   console.log("✅ verify:pmi — etapas");
   dateFieldsMain();
   console.log("✅ verify:pmi — fechas de apartado y cierre");
+  ganadosMain();
+  console.log("✅ verify:pmi — negocio ganado");
   engineMain();
   console.log("✅ verify:pmi — motor");
   monthMain();

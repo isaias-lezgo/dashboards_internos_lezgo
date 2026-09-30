@@ -634,6 +634,11 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   20 en México. Los seis proyectos ya tienen los dos campos (creados 2026-09-21); la
   consultoría los llena a mano. La bitácora sigue escribiendo sus filas de apartado/cierre (insert-only, hoy
   sin lector) y `pmi:backfill` sigue existiendo; solo `perfilamientos` las lee.
+- **"En proceso de cierre" y "Negocio Ganado"** (2026-09-30). El indicador `cierres` se
+  muestra como "En proceso de cierre" (el código sigue diciendo `cierres`). `ganados` es
+  un SUBCONJUNTO: la misma "Fecha de cierre", solo si `effectiveStage` es Negocio Ganado
+  o Entregado (`isGanadoStage`). **No lleva objetivo** (`PMI_OBJECTIVES.ganados = 0`):
+  semáforo `null`, la UI y el PDF ponen "—" en objetivo/avance, y no tiene ranking.
 - **`opportunity_milestones` NO es desechable.** GHL no guarda cuándo una oportunidad
   entró a su etapa y `closedAt` viene vacío, así que `syncProject` anota la PRIMERA vez
   que cada oportunidad cruza cada hito (`lib/pmi-ledger.ts` puro, `pmi-ledger-store.ts`
@@ -665,8 +670,9 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   Objetivos fijos en `PMI_OBJECTIVES` (por asesor y mes; semanal ÷ 4, diario ÷ 7; equipo
   × asesores con actividad). Semáforo 180 / 100 / 75 % del Excel. Conversiones `null`
   sin denominador, nunca 0 %.
-- **Lead** = todo contacto nuevo (con desglose de pauta); **cita efectiva** = cita
-  `showed` por su fecha; **apartado** es un EVENTO, no un estado. Todo por día local.
+- **Lead** = todo contacto nuevo (con desglose de pauta); **cita efectiva** = la
+  PRIMERA cita `showed` de cada lead sobre el historial completo, por su fecha (las
+  visitas siguientes del mismo lead no cuentan); **apartado** es un EVENTO, no un estado. Todo por día local.
 - **El mes/año en curso se declara**: semanas, días y meses que no han ocurrido van en
   `—` y el `periodLabel` del PDF dice "al día N". Sin eso el análisis de Haiku leía las
   semanas futuras como una "caída abrupta".

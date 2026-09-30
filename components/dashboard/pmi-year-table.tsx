@@ -9,7 +9,7 @@ import { PmiRankingChart } from "./pmi-ranking-chart"
 import { MonthlyMoneyLine, QuarterRankings } from "./pmi-year-charts"
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-type Metric = PmiIndicator | "montoApartados" | "montoCierres"
+type Metric = PmiIndicator | "montoApartados" | "montoCierres" | "montoGanados"
 interface MetricDef { key: Metric; label: string; money: boolean; drill: PmiIndicator }
 const METRICS: MetricDef[] = [
   { key: "leads", label: INDICATOR_LABELS.leads, money: false, drill: "leads" },
@@ -18,7 +18,9 @@ const METRICS: MetricDef[] = [
   { key: "apartados", label: INDICATOR_LABELS.apartados, money: false, drill: "apartados" },
   { key: "montoApartados", label: "$ Apartados", money: true, drill: "apartados" },
   { key: "cierres", label: INDICATOR_LABELS.cierres, money: false, drill: "cierres" },
-  { key: "montoCierres", label: "$ Cierres", money: true, drill: "cierres" },
+  { key: "montoCierres", label: "$ En proceso de cierre", money: true, drill: "cierres" },
+  { key: "ganados", label: INDICATOR_LABELS.ganados, money: false, drill: "ganados" },
+  { key: "montoGanados", label: "$ Negocio Ganado", money: true, drill: "ganados" },
 ]
 
 function Cell({ c, metric, onClick, strong }: { c: PmiCounts; metric: MetricDef; onClick: () => void; strong?: boolean }) {
@@ -93,7 +95,7 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
         <PmiRankingChart title={`Ranking de apartados ${year.year}`} rows={year.rankingApartados} objective={null} empty="Sin apartados en el año."
           hint={<ScopePill label="Meta anual" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoApartados)} por asesor por cada mes con actividad. El color de la barra es el semáforo contra esa meta; el detalle está en la tabla de abajo.`} />}
           onBar={(name) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("apartados", name, a.total.ids.apartados, String(year.year)) }} />
-        <PmiRankingChart title={`Ranking de cierres ${year.year}`} rows={year.rankingCierres} objective={null} empty="Sin cierres en el año."
+        <PmiRankingChart title={`Ranking de proceso de cierre ${year.year}`} rows={year.rankingCierres} objective={null} empty="Sin procesos de cierre en el año."
           hint={<ScopePill label="Meta anual" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoCierres)} por asesor por cada mes con actividad. El color de la barra es el semáforo contra esa meta; el detalle está en la tabla de abajo.`} />}
           onBar={(name) => { const a = year.advisors.find((x) => x.name === name); if (a) drillAdvisor("cierres", name, a.total.ids.cierres, String(year.year)) }} />
       </div>
@@ -154,11 +156,11 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
       </DashboardCard>
       <div className="grid gap-4 lg:grid-cols-2">
         <YearRanking title={`Ranking de apartados ${year.year}`} rows={year.rankingApartados} objective={PMI_OBJECTIVES.montoApartados} />
-        <YearRanking title={`Ranking de cierres ${year.year}`} rows={year.rankingCierres} objective={PMI_OBJECTIVES.montoCierres} />
+        <YearRanking title={`Ranking de proceso de cierre ${year.year}`} rows={year.rankingCierres} objective={PMI_OBJECTIVES.montoCierres} />
       </div>
       <DashboardCard>
         <ChartCardHeader title="Ticket promedio"
-          actions={<ScopePill label="Cierres" tooltip="Monto cerrado entre número de cierres del año, por asesor." />} />
+          actions={<ScopePill label="En proceso de cierre" tooltip="Monto en proceso de cierre entre número de oportunidades en proceso de cierre del año, por asesor." />} />
         <ChartCardContent>
           <ul className="grid gap-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
             {year.advisors.map((a) => (

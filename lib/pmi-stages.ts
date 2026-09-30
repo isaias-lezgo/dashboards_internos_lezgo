@@ -75,6 +75,17 @@ export function projectHasMilestoneStages(pipelines: Pipeline[]): boolean {
   );
 }
 
+// "Negocio Ganado" del PMI: el proceso de cierre terminó. Es la etapa ACTUAL
+// (o la última antes de perderse, vía effectiveStage) en Negocio Ganado o
+// Entregado. Escritura no basta: esa oportunidad sigue "en proceso de cierre".
+const GANADO_TERMS = ["ganad", "entregad"];
+
+export function isGanadoStage(stageName: string | null): boolean {
+  if (!stageName) return false;
+  const n = normalizeStage(stageName);
+  return n !== LOST_STAGE && matches(n, GANADO_TERMS);
+}
+
 // ── Fechas de apartado y cierre: campos de la oportunidad ─────────────────────
 //
 // Desde 2026-09-21 los hitos de dinero NO salen de la bitácora ni de la etapa:

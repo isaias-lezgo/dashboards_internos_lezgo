@@ -5,11 +5,11 @@ import { semaphore, type PmiCounts, type PmiIndicator, type PmiObjectives, type 
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
 import { INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
 
-// Filas de la tabla: los cinco conteos y los dos montos. Los montos no son
+// Filas de la tabla: los seis conteos y los tres montos. Los montos no son
 // indicadores con ids propios: abren el drill de su conteo.
 type Row =
   | { key: PmiIndicator; label: string; money?: false }
-  | { key: "montoApartados" | "montoCierres"; label: string; money: true; drill: PmiIndicator }
+  | { key: "montoApartados" | "montoCierres" | "montoGanados"; label: string; money: true; drill: PmiIndicator }
 
 const ROWS: Row[] = [
   { key: "leads", label: INDICATOR_LABELS.leads },
@@ -18,7 +18,9 @@ const ROWS: Row[] = [
   { key: "apartados", label: INDICATOR_LABELS.apartados },
   { key: "montoApartados", label: "Monto de apartados", money: true, drill: "apartados" },
   { key: "cierres", label: INDICATOR_LABELS.cierres },
-  { key: "montoCierres", label: "Monto de cierres", money: true, drill: "cierres" },
+  { key: "montoCierres", label: "Monto en proceso de cierre", money: true, drill: "cierres" },
+  { key: "ganados", label: INDICATOR_LABELS.ganados },
+  { key: "montoGanados", label: "Monto de Negocio Ganado", money: true, drill: "ganados" },
 ]
 
 function cellValue(c: PmiCounts, row: Row): number {
@@ -84,7 +86,7 @@ export function PmiPeriodTable({
                 return (
                   <tr key={row.key} className="border-t border-border/60">
                     <td className="py-1.5 pr-2 font-medium">{row.label}</td>
-                    {columnObjective && <td className="py-1.5 px-2 text-right text-muted-foreground">{fmt(columnObjective[row.key])}</td>}
+                    {columnObjective && <td className="py-1.5 px-2 text-right text-muted-foreground">{columnObjective[row.key] > 0 ? fmt(columnObjective[row.key]) : "—"}</td>}
                     {columns.map((col) => {
                       const v = cellValue(col.counts, row)
                       const ids = col.counts.ids[drillKind]
@@ -109,7 +111,7 @@ export function PmiPeriodTable({
                       )
                     })}
                     <td className={cn("py-1 px-2 text-right font-semibold", toneClass(semaphore(totalValue, objPeriod)))}>{fmt(totalValue)}</td>
-                    <td className="py-1.5 pl-2 text-right text-muted-foreground">{fmt(objPeriod)}</td>
+                    <td className="py-1.5 pl-2 text-right text-muted-foreground">{objPeriod > 0 ? fmt(objPeriod) : "—"}</td>
                     <td className="py-1.5 pl-2 text-right">{fmtPct(objPeriod > 0 ? totalValue / objPeriod : null)}</td>
                   </tr>
                 )

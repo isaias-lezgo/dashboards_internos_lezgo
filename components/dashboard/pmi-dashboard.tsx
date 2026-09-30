@@ -48,12 +48,13 @@ const monthName = (ym: string, long = false) => (long ? MONTHS_LONG : MONTHS_SHO
 export const PMI_RULES = {
   leads: "Todo contacto nuevo asignado al asesor en el período, venga de donde venga; abajo, cuántos son de pauta.",
   perfilamientos: "Primera vez que la oportunidad llegó a Cliente Calificado o una etapa posterior. Las perdidas cuentan por su última etapa.",
-  citas: "Citas de calendario con estado 'showed' (el lead sí fue), por su fecha.",
+  citas: "Primera cita con estado 'showed' de cada lead (el lead sí fue), por su fecha. Las visitas siguientes del mismo lead no cuentan.",
   apartados: "Primera vez que la oportunidad llegó a Apartado o una etapa posterior. Un apartado que después se cae sigue contando en su mes.",
-  cierres: "Primera vez que la oportunidad llegó a Proceso de Escritura, Siguiente Escritura, Negocio Ganado o Entregado.",
+  cierres: "Oportunidades con el campo 'Fecha de cierre' lleno, por esa fecha. Sin fecha no cuenta, esté en la etapa que esté.",
+  ganados: "Las de 'En proceso de cierre' que además ya están en la etapa Negocio Ganado o Entregado: el proceso terminó. Van por la misma 'Fecha de cierre' y no llevan objetivo.",
 } as const
 
-const COUNT_KEYS = ["leads", "perfilamientos", "citas", "apartados", "cierres"] as const
+const COUNT_KEYS = ["leads", "perfilamientos", "citas", "apartados", "cierres", "ganados"] as const
 
 // Una línea por período (semanas del mes o meses del trimestre); el clic en
 // cualquier parte de la columna del período abre sus registros (el chart
@@ -104,11 +105,12 @@ function AdvisorTable({ rows, active, tooltip, onSelect }: { rows: AdvisorRow[];
                   <th key={k} className="py-1.5 px-2 text-right font-medium">{INDICATOR_LABELS[k]}</th>
                 ))}
                 <th className="py-1.5 px-2 text-right font-medium">$ Apartados</th>
-                <th className="py-1.5 px-2 text-right font-medium">$ Cierres</th>
+                <th className="py-1.5 px-2 text-right font-medium">$ En proceso</th>
+                <th className="py-1.5 px-2 text-right font-medium">$ Ganado</th>
                 <th className="py-1.5 px-2 text-right font-medium">L→P</th>
                 <th className="py-1.5 px-2 text-right font-medium">P→C</th>
                 <th className="py-1.5 px-2 text-right font-medium">C→A</th>
-                <th className="py-1.5 pl-2 text-right font-medium">A→Ci</th>
+                <th className="py-1.5 pl-2 text-right font-medium">A→PC</th>
               </tr>
             </thead>
             <tbody>
@@ -131,6 +133,7 @@ function AdvisorTable({ rows, active, tooltip, onSelect }: { rows: AdvisorRow[];
                     ))}
                     <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoApartados)}</td>
                     <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoCierres)}</td>
+                    <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoGanados)}</td>
                     <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.leadPerfil)}</td>
                     <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.perfilCita)}</td>
                     <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.citaApartado)}</td>
@@ -290,8 +293,8 @@ export function PmiDashboard(props: PmiDashboardProps) {
                 <>
                   <PmiRankingChart title="Ranking de apartados" rows={pmi.rankingApartados} objective={PMI_OBJECTIVES.montoApartados} empty="Sin apartados en el mes."
                     onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.apartados > 0) openDrill("apartados", a.total.ids.apartados, `Apartados · ${name}`, monthLabel(month)) }} />
-                  <PmiRankingChart title="Ranking de cierres" rows={pmi.rankingCierres} objective={PMI_OBJECTIVES.montoCierres} empty="Sin cierres en el mes."
-                    onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `Cierres · ${name}`, monthLabel(month)) }} />
+                  <PmiRankingChart title="Ranking de proceso de cierre" rows={pmi.rankingCierres} objective={PMI_OBJECTIVES.montoCierres} empty="Sin procesos de cierre en el mes."
+                    onBar={(name) => { const a = pmi.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `En proceso de cierre · ${name}`, monthLabel(month)) }} />
                 </>
               ) : weekTrends}
             </div>
@@ -332,9 +335,9 @@ export function PmiDashboard(props: PmiDashboardProps) {
                   <PmiRankingChart title="Ranking de apartados" rows={pmiQuarter.rankingApartados} objective={null} empty="Sin apartados en el trimestre."
                     hint={<ScopePill label="Meta" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoApartados)} por asesor por cada mes del trimestre con actividad. El color de la barra es el semáforo contra esa meta.`} />}
                     onBar={(name) => { const a = pmiQuarter.advisors.find((x) => x.name === name); if (a && a.total.apartados > 0) openDrill("apartados", a.total.ids.apartados, `Apartados · ${name}`, quarterLabel(qYear, q)) }} />
-                  <PmiRankingChart title="Ranking de cierres" rows={pmiQuarter.rankingCierres} objective={null} empty="Sin cierres en el trimestre."
+                  <PmiRankingChart title="Ranking de proceso de cierre" rows={pmiQuarter.rankingCierres} objective={null} empty="Sin procesos de cierre en el trimestre."
                     hint={<ScopePill label="Meta" tooltip={`${fmtMxn(PMI_OBJECTIVES.montoCierres)} por asesor por cada mes del trimestre con actividad. El color de la barra es el semáforo contra esa meta.`} />}
-                    onBar={(name) => { const a = pmiQuarter.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `Cierres · ${name}`, quarterLabel(qYear, q)) }} />
+                    onBar={(name) => { const a = pmiQuarter.advisors.find((x) => x.name === name); if (a && a.total.cierres > 0) openDrill("cierres", a.total.ids.cierres, `En proceso de cierre · ${name}`, quarterLabel(qYear, q)) }} />
                 </>
               ) : monthTrends}
             </div>

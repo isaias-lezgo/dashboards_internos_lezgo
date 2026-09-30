@@ -18,7 +18,7 @@ function dayLabel(day: string): string {
   return `${Number(day.slice(8))} de ${MONTH_NAMES[Number(day.slice(5, 7)) - 1]}`
 }
 
-const ROWS: PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres"]
+const ROWS: PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres", "ganados"]
 
 // La ficha del asesor: indicadores × días agrupados por semana, teñida por el
 // semáforo DIARIO (objetivo mes ÷ 28), con el total por semana. Es la tabla

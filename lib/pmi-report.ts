@@ -22,10 +22,18 @@ const pct = (r: number | null) => (r === null ? "—" : `${(r * 100).toFixed(0)}
 const toneWord = (t: PmiTone) =>
   t === "alto" ? "Superó" : t === "medio" ? "Alcanzó" : t === "bajo" ? "Se acercó" : "Debajo";
 const avance = (v: number, o: number) => pct(o > 0 ? v / o : null);
+// Total, Objetivo, Avance, Semáforo. Negocio Ganado no lleva objetivo: sus tres
+// últimas columnas van en "—", no en "0 / Debajo".
+const vsObjective = (v: number, o: number, fmt: (n: number) => string) =>
+  o > 0 ? [fmt(v), fmt(o), avance(v, o), toneWord(semaphore(v, o))] : [fmt(v), "—", "—", "—"];
 
 const COUNT_ROWS: [string, PmiIndicator][] = [
   ["Leads", "leads"], ["Perfilamientos", "perfilamientos"], ["Citas efectivas", "citas"],
-  ["Apartados", "apartados"], ["Cierres", "cierres"],
+  ["Apartados", "apartados"], ["En proceso de cierre", "cierres"], ["Negocio Ganado", "ganados"],
+];
+type MontoKey = "montoApartados" | "montoCierres" | "montoGanados";
+const MONTO_ROWS: [string, MontoKey][] = [
+  ["Monto de apartados", "montoApartados"], ["Monto en proceso de cierre", "montoCierres"], ["Monto de Negocio Ganado", "montoGanados"],
 ];
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -35,7 +43,8 @@ function kpisOf(total: PmiCounts, o: PmiObjectives) {
     { label: "Perfilamientos", value: `${int(total.perfilamientos)} / ${int(o.perfilamientos)}` },
     { label: "Citas efectivas", value: `${int(total.citas)} / ${int(o.citas)}` },
     { label: "Apartados", value: `${int(total.apartados)} · ${mxn(total.montoApartados)}` },
-    { label: "Cierres", value: `${int(total.cierres)} · ${mxn(total.montoCierres)}` },
+    { label: "En proceso de cierre", value: `${int(total.cierres)} · ${mxn(total.montoCierres)}` },
+    { label: "Negocio Ganado", value: `${int(total.ganados)} · ${mxn(total.montoGanados)}` },
   ];
 }
 
@@ -63,11 +72,8 @@ function weekSection(s: PmiSlice, pmi: PmiMonth): ReportSection {
       t: "table",
       headers: ["Indicador", ...pmi.weeks.map((w) => `Sem ${w.index + 1} (${w.label})`), "Total", "Objetivo", "Avance", "Semáforo"],
       rows: [
-        ...COUNT_ROWS.map(([label, k]) => [
-          label, ...s.byWeek.map((c, i) => cell(i, int(c[k]))), int(s.total[k]), int(o[k]), avance(s.total[k], o[k]), toneWord(semaphore(s.total[k], o[k])),
-        ]),
-        ["Monto de apartados", ...s.byWeek.map((c, i) => cell(i, mxn(c.montoApartados))), mxn(s.total.montoApartados), mxn(o.montoApartados), avance(s.total.montoApartados, o.montoApartados), toneWord(semaphore(s.total.montoApartados, o.montoApartados))],
-        ["Monto de cierres", ...s.byWeek.map((c, i) => cell(i, mxn(c.montoCierres))), mxn(s.total.montoCierres), mxn(o.montoCierres), avance(s.total.montoCierres, o.montoCierres), toneWord(semaphore(s.total.montoCierres, o.montoCierres))],
+        ...COUNT_ROWS.map(([label, k]) => [label, ...s.byWeek.map((c, i) => cell(i, int(c[k]))), ...vsObjective(s.total[k], o[k], int)]),
+        ...MONTO_ROWS.map(([label, k]) => [label, ...s.byWeek.map((c, i) => cell(i, mxn(c[k]))), ...vsObjective(s.total[k], o[k], mxn)]),
       ],
     }],
   };
@@ -85,7 +91,7 @@ function conversionsSection(c: PmiConversions): ReportSection {
         ["Leads → Perfilamientos", pct(c.leadPerfil), pct(PMI_CONVERSION_TARGETS.leadPerfil)],
         ["Perfilamientos → Citas efectivas", pct(c.perfilCita), pct(PMI_CONVERSION_TARGETS.perfilCita)],
         ["Citas efectivas → Apartados", pct(c.citaApartado), pct(PMI_CONVERSION_TARGETS.citaApartado)],
-        ["Apartados → Cierres", pct(c.apartadoCierre), pct(PMI_CONVERSION_TARGETS.apartadoCierre)],
+        ["Apartados → En proceso de cierre", pct(c.apartadoCierre), pct(PMI_CONVERSION_TARGETS.apartadoCierre)],
       ],
     }],
   };
@@ -127,7 +133,7 @@ function yearReport(y: PmiYear, locationName?: string): ReportInput {
   const inProgress = y.today.slice(0, 4) === String(y.year);
   const futureMonth = (i: number) => `${y.year}-${String(i + 1).padStart(2, "0")}-01` > y.today;
   const monthCell = (i: number, v: string) => (futureMonth(i) ? "—" : v);
-  const montoTable = (key: "montoApartados" | "montoCierres") => ({
+  const montoTable = (key: MontoKey) => ({
     t: "table" as const,
     headers: ["Asesor", ...MONTHS, "Total"],
     rows: [
@@ -147,14 +153,20 @@ function yearReport(y: PmiYear, locationName?: string): ReportInput {
     },
     {
       id: "cierres-mes",
-      title: "Cierres por asesor y mes",
-      explanation: "Monto cerrado por asesor en cada mes del año, con el total anual." + inProgressNote,
+      title: "En proceso de cierre por asesor y mes",
+      explanation: "Monto en proceso de cierre (con \"Fecha de cierre\") por asesor en cada mes del año, con el total anual." + inProgressNote,
       blocks: [montoTable("montoCierres")],
+    },
+    {
+      id: "ganados-mes",
+      title: "Negocio Ganado por asesor y mes",
+      explanation: "Monto de las oportunidades en proceso de cierre que ya llegaron a Negocio Ganado o Entregado, por asesor y mes, con el total anual. No lleva objetivo." + inProgressNote,
+      blocks: [montoTable("montoGanados")],
     },
     {
       id: "actividad-trimestre",
       title: "Actividad por trimestre",
-      explanation: "Leads, perfilamientos, citas efectivas, apartados y cierres del equipo por trimestre." + inProgressNote,
+      explanation: "Leads, perfilamientos, citas efectivas, apartados, procesos de cierre y negocios ganados del equipo por trimestre." + inProgressNote,
       blocks: [{
         t: "chart", type: "bar", valueLabel: "Registros",
         categories: ["T1", "T2", "T3", "T4"],
@@ -174,8 +186,8 @@ function yearReport(y: PmiYear, locationName?: string): ReportInput {
     {
       id: "ticket",
       title: "Ticket promedio",
-      explanation: "Monto cerrado entre número de cierres, por asesor.",
-      blocks: [{ t: "table", headers: ["Asesor", "Cierres", "Ticket promedio"], rows: y.advisors.map((a) => [a.name, int(a.total.cierres), a.ticketPromedio === null ? "—" : mxn(a.ticketPromedio)]) }],
+      explanation: "Monto en proceso de cierre entre número de oportunidades en proceso de cierre, por asesor.",
+      blocks: [{ t: "table", headers: ["Asesor", "En proceso de cierre", "Ticket promedio"], rows: y.advisors.map((a) => [a.name, int(a.total.cierres), a.ticketPromedio === null ? "—" : mxn(a.ticketPromedio)]) }],
     },
     ...estimatedCallout(y.estimatedCount),
   ];
@@ -187,7 +199,8 @@ function yearReport(y: PmiYear, locationName?: string): ReportInput {
     kpis: [
       { label: "Leads", value: int(y.team.total.leads) },
       { label: "Apartados", value: `${int(y.team.total.apartados)} · ${mxn(y.team.total.montoApartados)}` },
-      { label: "Cierres", value: `${int(y.team.total.cierres)} · ${mxn(y.team.total.montoCierres)}` },
+      { label: "En proceso de cierre", value: `${int(y.team.total.cierres)} · ${mxn(y.team.total.montoCierres)}` },
+      { label: "Negocio Ganado", value: `${int(y.team.total.ganados)} · ${mxn(y.team.total.montoGanados)}` },
     ],
     sections,
   };
@@ -206,13 +219,13 @@ export function buildPmiReport(v: PmiReportVariant, locationName?: string): Repo
     sections.push({
       id: "por-asesor",
       title: "Resultados por asesor",
-      explanation: "Los cinco indicadores y los montos de cada asesor en el mes, con sus conversiones.",
+      explanation: "Los seis indicadores y los montos de cada asesor en el mes, con sus conversiones.",
       blocks: [{
         t: "table",
-        headers: ["Asesor", "Leads", "Perfil.", "Citas", "Apartados", "$ Apartados", "Cierres", "$ Cierres", "L→P", "P→C", "C→A", "A→Ci"],
+        headers: ["Asesor", "Leads", "Perfil.", "Citas", "Apartados", "$ Apartados", "En proceso", "$ En proceso", "Ganado", "$ Ganado", "L→P", "P→C", "C→A", "A→PC"],
         rows: pmi.advisors.map((a) => [
           a.name, int(a.total.leads), int(a.total.perfilamientos), int(a.total.citas), int(a.total.apartados), mxn(a.total.montoApartados),
-          int(a.total.cierres), mxn(a.total.montoCierres), pct(a.conversions.leadPerfil), pct(a.conversions.perfilCita), pct(a.conversions.citaApartado), pct(a.conversions.apartadoCierre),
+          int(a.total.cierres), mxn(a.total.montoCierres), int(a.total.ganados), mxn(a.total.montoGanados), pct(a.conversions.leadPerfil), pct(a.conversions.perfilCita), pct(a.conversions.citaApartado), pct(a.conversions.apartadoCierre),
         ]),
       }],
     });
@@ -279,11 +292,8 @@ function monthSection(s: PmiQuarterSlice, qd: PmiQuarterDetail, advisor: boolean
       t: "table",
       headers: ["Indicador", ...labels, "Total", "Objetivo", "Avance", "Semáforo"],
       rows: [
-        ...COUNT_ROWS.map(([label, k]) => [
-          label, ...s.byMonth.map((c, i) => cell(i, int(c[k]))), int(s.total[k]), int(o[k]), avance(s.total[k], o[k]), toneWord(semaphore(s.total[k], o[k])),
-        ]),
-        ["Monto de apartados", ...s.byMonth.map((c, i) => cell(i, mxn(c.montoApartados))), mxn(s.total.montoApartados), mxn(o.montoApartados), avance(s.total.montoApartados, o.montoApartados), toneWord(semaphore(s.total.montoApartados, o.montoApartados))],
-        ["Monto de cierres", ...s.byMonth.map((c, i) => cell(i, mxn(c.montoCierres))), mxn(s.total.montoCierres), mxn(o.montoCierres), avance(s.total.montoCierres, o.montoCierres), toneWord(semaphore(s.total.montoCierres, o.montoCierres))],
+        ...COUNT_ROWS.map(([label, k]) => [label, ...s.byMonth.map((c, i) => cell(i, int(c[k]))), ...vsObjective(s.total[k], o[k], int)]),
+        ...MONTO_ROWS.map(([label, k]) => [label, ...s.byMonth.map((c, i) => cell(i, mxn(c[k]))), ...vsObjective(s.total[k], o[k], mxn)]),
       ],
     }],
   };
@@ -319,13 +329,13 @@ function quarterReport(v: Extract<PmiReportVariant, { kind: "quarter-team" | "qu
     sections.push({
       id: "por-asesor",
       title: "Resultados por asesor",
-      explanation: "Los cinco indicadores y los montos de cada asesor en el trimestre, con sus conversiones.",
+      explanation: "Los seis indicadores y los montos de cada asesor en el trimestre, con sus conversiones.",
       blocks: [{
         t: "table",
-        headers: ["Asesor", "Leads", "Perfil.", "Citas", "Apartados", "$ Apartados", "Cierres", "$ Cierres", "L→P", "P→C", "C→A", "A→Ci"],
+        headers: ["Asesor", "Leads", "Perfil.", "Citas", "Apartados", "$ Apartados", "En proceso", "$ En proceso", "Ganado", "$ Ganado", "L→P", "P→C", "C→A", "A→PC"],
         rows: qd.advisors.map((a) => [
           a.name, int(a.total.leads), int(a.total.perfilamientos), int(a.total.citas), int(a.total.apartados), mxn(a.total.montoApartados),
-          int(a.total.cierres), mxn(a.total.montoCierres), pct(a.conversions.leadPerfil), pct(a.conversions.perfilCita), pct(a.conversions.citaApartado), pct(a.conversions.apartadoCierre),
+          int(a.total.cierres), mxn(a.total.montoCierres), int(a.total.ganados), mxn(a.total.montoGanados), pct(a.conversions.leadPerfil), pct(a.conversions.perfilCita), pct(a.conversions.citaApartado), pct(a.conversions.apartadoCierre),
         ]),
       }],
     });

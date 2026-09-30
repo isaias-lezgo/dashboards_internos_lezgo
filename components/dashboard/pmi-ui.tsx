@@ -10,7 +10,8 @@ export const INDICATOR_LABELS: Record<PmiIndicator, string> = {
   perfilamientos: "Perfilamientos",
   citas: "Citas efectivas",
   apartados: "Apartados",
-  cierres: "Cierres",
+  cierres: "En proceso de cierre",
+  ganados: "Negocio Ganado",
 }
 
 // Los tres tonos del Excel (verde / cian / rojo) traducidos a la paleta del
@@ -143,7 +144,7 @@ export const CONVERSION_LABELS: { key: keyof PmiConversions; label: string }[] =
   { key: "leadPerfil", label: "Leads → Perfilamientos" },
   { key: "perfilCita", label: "Perfilamientos → Citas" },
   { key: "citaApartado", label: "Citas → Apartados" },
-  { key: "apartadoCierre", label: "Apartados → Cierres" },
+  { key: "apartadoCierre", label: "Apartados → En proceso de cierre" },
 ]
 
 export function EstimatedNote({ count }: { count: number }) {
@@ -153,8 +154,8 @@ export function EstimatedNote({ count }: { count: number }) {
       <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
       <span>
         {count} {count === 1 ? "perfilamiento tiene" : "perfilamientos tienen"} fecha estimada: son anteriores al
-        arranque de la bitácora y llevan la fecha de su última edición en el CRM. Apartados y cierres salen de los
-        campos "Fecha de apartado" y "Fecha de cierre" de la oportunidad y nunca se estiman.
+        arranque de la bitácora y llevan la fecha de su última edición en el CRM. Apartados, procesos de cierre y negocios
+        ganados salen de los campos "Fecha de apartado" y "Fecha de cierre" de la oportunidad y nunca se estiman.
       </span>
     </p>
   )
