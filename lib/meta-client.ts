@@ -107,7 +107,10 @@ async function graphGetAll<T>(path: string, params: Record<string, string>, toke
     next.searchParams.forEach((v, k) => {
       if (k !== "access_token") nextParams[k] = v;
     });
-    page = await graphGet(next.pathname.replace(`/${GRAPH_VERSION}/`, ""), nextParams, token);
+    // Cualquier versión, no solo la nuestra: Graph arma `next` con la versión
+    // por defecto de la app (llegó v26.0 con GRAPH en v23.0), y quitar solo la
+    // nuestra dejaba `/v23.0/v26.0/act_…` → code 2500 en toda cuenta paginada.
+    page = await graphGet(next.pathname.replace(/^\/v\d+\.\d+\//, ""), nextParams, token);
     out.push(...page.data);
   }
   return out;
