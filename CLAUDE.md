@@ -14,8 +14,9 @@ pnpm lint       # Run ESLint
 # Multi-client
 pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, validates, prints the blob)
                 #   Non-interactive: pnpm add-client --name "X" --location <id> --token pit-…
-pnpm db:migrate # Crea/verifica project_sync, meta_connection, meta_project_accounts y opportunity_milestones
-                #   en Neon. Idempotente.
+pnpm db:migrate # Crea/verifica project_sync, meta_connection, meta_project_accounts, meta_project_connection
+                #   y opportunity_milestones en Neon, y copia la conexión vieja de Meta a los proyectos
+                #   con cuentas asignadas. Idempotente.
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing
@@ -33,9 +34,11 @@ pnpm verify:pauta        # lib/pauta.ts — el vocabulario de tráfico pagado po
                          #   por substring (la regresión de Callpicker), y la unión de isDePauta
 pnpm verify:drill-export # lib/drill-export.ts — el CSV sella las fechas en hora LOCAL,
                          #   la misma con la que el filtro las seleccionó
-pnpm verify:meta-oauth   # lib/meta-oauth.ts — state firmado por alcance, cifrado del token, URL del diálogo
-pnpm verify:meta-connection-store # lib/meta-connection-store.ts — fila única por producto + cuentas por proyecto;
-                         #   usa la base si hay DATABASE_URL, con producto sintético (no toca 'ads')
+pnpm verify:meta-oauth   # lib/meta-oauth.ts + lib/meta-expiry.ts — state firmado por alcance Y proyecto,
+                         #   cifrado del token, URL del diálogo, días para caducar
+pnpm verify:meta-connection-store # lib/meta-connection-store.ts — una conexión por proyecto (aislamiento,
+                         #   autoselección, reconexión conserva cuentas, backfill); usa la base si hay
+                         #   DATABASE_URL, con producto sintético (no toca 'ads')
 pnpm verify:meta         # lib/meta-normalize.ts — actions, chunks por mes, ventana de historia
 pnpm verify:meta-attribution # lib/meta-attribution.ts — llave por ad id, cohorte por día local, costo por campaña
 pnpm verify:paid-performance # lib/paid-performance.ts — el gasto por campaña es idéntico al de
@@ -463,25 +466,34 @@ Spec ①: `docs/superpowers/specs/2026-09-14-meta-ads-conexion-y-sync-design.md`
 entrega ① de DRT; las razones que no cambian viven en el spec de DRT). Spec ②:
 `docs/superpowers/specs/2026-09-14-meta-ads-inversion-y-asistente-design.md`. Entrega ① —
 conexión, dataset en el sync y cruce — y ② — sección "Inversión en pauta" en Marketing y
-PDF, y el asistente — implementadas.
+PDF, y el asistente — implementadas. Conexión por proyecto:
+`docs/superpowers/specs/2026-10-07-meta-conexion-por-proyecto-design.md`.
 
-- **Una conexión por despliegue, cuentas por proyecto.** `meta_connection` tiene PK
-  `product` (sin `client_id`): un admin de Lezgo conecta UNA vez con la empresa de
-  Lezgo. `meta_project_accounts (project_id, product, account_ids)` dice qué `act_`
-  mira cada proyecto; una cuenta puede servir a dos proyectos (Plaza Bosques y Meseta
-  comparten anuncios). **Ninguna de las dos es desechable**: borrar la conexión
-  obliga a reconectar; el DELETE no borra asignaciones.
+- **Una conexión por proyecto** (2026-10-07). `meta_project_connection`, PK
+  `(project_id, product)`: token cifrado, `available_accounts` (lo que ese token ve) y
+  `account_ids` (lo que el proyecto mira) en una fila. Conecta **una persona de Lezgo que
+  ya entra a la cuenta publicitaria del cliente con su propio Facebook**, desde ese
+  proyecto: nada de compartir cuentas al portafolio de Lezgo ni asignarlas a un usuario
+  del sistema. Con una sola cuenta visible se elige sola; reconectar conserva la
+  selección; desconectar borra la fila de ESE proyecto (con su selección). **No es
+  desechable.** `meta_connection` / `meta_project_accounts` son el modelo anterior: ya
+  nadie las lee, y `db:migrate` copió su conexión a los proyectos con asignación
+  (`backfillProjectConnections`).
 - **Solo el alcance `all` administra** (`lib/meta-admin.ts`, `requireMetaAdmin()`):
   `connect`, `callback`, `DELETE /connection` y `POST /accounts` responden 403 a
   `domus`/`iw`, que ven la píldora como estado sin menú. El `state` del OAuth lleva el
-  `scopeId` firmado y el callback exige que sea `all` y el de la sesión — más la
+  `scopeId` y el `projectId` firmados y el callback exige que sea `all` y el de la
+  sesión, y su proyecto el que la sesión tiene abierto (un OAuth iniciado en Condesa no
+  se guarda en Yconia) — más la
   cookie de nonce `meta_oauth`, un solo uso, que ata el callback al navegador que
   empezó el flujo.
 - **Por qué funciona sin App Review** (verificado 2026-09-14 con el MCP de Meta):
   `ads_read`/`business_management` están en acceso Standard, que solo se concede a
-  usuarios con rol en la app o en el portafolio que la reclamó. Quien conecta es admin
-  de la app, así que basta. Un "Conectar" por proyecto con el admin del BM de una
-  agencia NO funcionaría hoy. El *Marketing API Access Tier* empieza en Limited (rate
+  usuarios con rol en la app o en el portafolio que la reclamó. Por eso **quien conecta
+  cada proyecto necesita rol en la app** (admin/developer/tester; a una persona nueva de
+  Lezgo se le agrega una vez). Que el cliente o su agencia conecte con su propio Facebook
+  NO funciona hasta pasar App Review por Advanced `ads_read` (revisado otra vez el
+  2026-10-07: el envío sigue `UNSUBMITTED`). El *Marketing API Access Tier* empieza en Limited (rate
   limit agresivo por cuenta) y sube a Full solo tras 500 llamadas exitosas en 15 días:
   throttling la primera semana es esperado, se ve como paso `meta` lento o `partial`.
 - **El lead es el CONTACTO y su anuncio sale de una cadena** (`contactAdId` en
@@ -547,10 +559,16 @@ PDF, y el asistente — implementadas.
   `act_739107949183573`, ventana 2025-09 → 2026-09, 27 campañas / 132 ads / 2 653 filas
   diarias; 248 de 404 oportunidades `exact` (61 %), 3 `unknownAd`. **Gasto cuadrado al
   peso contra el Administrador de anuncios**: julio 2026 $12,825.99 y agosto 2026
-  $9,817.97 MXN. Al conectar, la empresa solo compartió esa cuenta: las de Condesa,
-  Yconia, Plaza Bosques, Grand Center y Balvanera hay que compartirlas al portafolio de
-  Lezgo (socio, "ver rendimiento") y asignarlas al usuario del sistema en Business
-  Manager, y luego **Reconectar** para refrescar `available_accounts`.
+  $9,817.97 MXN. Al migrar a conexión por proyecto (2026-10-07) esa conexión se copió
+  a Lezgo Suite, Balvanera y Yconia (las que tenían cuentas asignadas); las de Balvanera
+  y Yconia no están entre las que ve ese token, así que salen `partial` hasta que alguien
+  con acceso reconecte desde su píldora. Los demás proyectos se conectan desde la suya.
+- **Tipo de token por probar.** La config de Login (`META_LOGIN_CONFIG_ID`) emite tokens
+  de usuario del sistema; con un proyecto de cliente, el usuario del sistema se crearía en
+  el portafolio del cliente, y no está verificado que Meta lo permita con acceso Standard.
+  Si el diálogo regresa sin cuentas, el plan B es una segunda config con **token de
+  usuario** (`ads_read`) y cambiar `META_LOGIN_CONFIG_ID` en Vercel: dura ~60 días y la
+  píldora avisa desde 14 días antes (`lib/meta-expiry.ts`).
 - **Gotcha de dominio**: el dominio de producción de ESTE proyecto de Vercel
   (`dashboards-internos-lezgo`) es `proyectos.lezgosuite.com`; `dashboards.lezgosuite.com`
   es otro proyecto (`dashboards-ghl`). `META_PUBLIC_ORIGIN` apuntando al host equivocado
