@@ -1,8 +1,8 @@
 // lib/meta-admin.ts
-// Quién puede tocar la conexión con Meta: SOLO una sesión del alcance `all`.
-// Los alcances de agencia (domus, iw) ven el gasto de sus proyectos, pero no
-// conectan, reconectan, desconectan ni asignan cuentas — la conexión es del
-// despliegue entero, y reconectar con otra empresa la sobrescribe para todos.
+// Quién puede tocar la conexión con Meta de un proyecto: SOLO una sesión del
+// alcance `all`. Los alcances de agencia (domus, iw) ven el gasto de sus
+// proyectos, pero no conectan, reconectan, desconectan ni asignan cuentas:
+// conectar ata el Facebook de una persona de Lezgo al proyecto.
 import { currentScope } from "./session";
 import type { AccessScope } from "./scopes";
 

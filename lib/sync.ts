@@ -26,7 +26,7 @@ import {
   type GHLTask,
 } from "@/lib/ghl-client";
 import { withClient } from "@/lib/ghl-context";
-import { readMetaConnectionWithToken, readProjectAccounts } from "@/lib/meta-connection-store";
+import { readMetaConnectionWithToken } from "@/lib/meta-connection-store";
 import { fetchMetaAds, MetaApiError } from "@/lib/meta-client";
 import { historyWindow } from "@/lib/meta-normalize";
 import { oppAdId, PANEL_TIME_ZONE } from "@/lib/meta-attribution";
@@ -673,16 +673,11 @@ export async function syncProject(
       let metaAds: MetaAdsData | null = null;
       let metaAdsStatus: MetaAdsStatus = { state: "none" };
       // El token solo se descifra aquí y nunca sale de este bloque.
-      const [metaConn, metaAccountIds] = await Promise.all([
-        readMetaConnectionWithToken("ads").catch((err) => {
-          console.error("[meta] no se pudo leer la conexión, se sincroniza sin Meta:", err);
-          return null;
-        }),
-        readProjectAccounts(client, "ads").catch((err) => {
-          console.error("[meta] no se pudieron leer las cuentas del proyecto:", err);
-          return [] as string[];
-        }),
-      ]);
+      const metaConn = await readMetaConnectionWithToken(client, "ads").catch((err) => {
+        console.error("[meta] no se pudo leer la conexión, se sincroniza sin Meta:", err);
+        return null;
+      });
+      const metaAccountIds = metaConn?.accountIds ?? [];
       if (metaConn && metaAccountIds.length > 0) {
         if (metaConn.token === null) {
           // Hay fila pero el blob no descifra (DASHBOARD_AUTH_SECRET rotado). Callar
@@ -712,8 +707,8 @@ export async function syncProject(
                 onFrame({ type: "progress", message: `Cargando Meta Ads… ${n.toLocaleString("es-MX")} anuncios` });
               },
             });
-            // Una cuenta asignada que la conexión ya no ve (otra empresa, o se
-            // dejó de compartir) cuenta como fallida: la píldora la nombra.
+            // Una cuenta elegida que el token de este proyecto ya no ve (quien
+            // conectó perdió acceso) cuenta como fallida: la píldora la nombra.
             const missing = metaAccountIds
               .filter((id) => !metaConn.availableAccounts.some((a) => a.id === id))
               .map((id) => ({ id, reason: "not_available" }));

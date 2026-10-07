@@ -1,10 +1,11 @@
 // app/api/meta/callback/route.ts
-// El regreso del diálogo de Meta. Verifica el state, canjea el code, averigua qué
-// clase de token es, lista las cuentas concedidas y guarda LA fila del
-// despliegue. Cualquier falla regresa al panel con ?meta=error&reason=… y NO
-// deja nada guardado.
+// El regreso del diálogo de Meta. Verifica el state (alcance + proyecto), canjea
+// el code, averigua qué clase de token es, lista las cuentas concedidas y guarda
+// la fila DEL PROYECTO DE LA SESIÓN. Cualquier falla regresa al panel con
+// ?meta=error&reason=… y NO deja nada guardado.
 import { cookies } from "next/headers";
 import { requireMetaAdmin, forbidden } from "@/lib/meta-admin";
+import { requireClient, unauthorized } from "@/lib/session";
 import { verifyState, redirectUriFor, OAUTH_COOKIE } from "@/lib/meta-oauth";
 import { safeEqual } from "@/lib/auth";
 import { exchangeCode, debugToken, fetchMe, listAdAccounts, MetaApiError } from "@/lib/meta-client";
@@ -32,14 +33,23 @@ function back(req: Request, params: Record<string, string>): Response {
 export async function GET(req: Request) {
   const scope = await requireMetaAdmin();
   if (!scope) return forbidden();
+  const client = await requireClient();
+  if (!client) return unauthorized();
 
   const q = new URL(req.url).searchParams;
   const fail = (reason: Reason) => back(req, { meta: "error", reason });
 
   const state = await verifyState(q.get("state"));
-  // El state tiene que ser del alcance logueado (y ese alcance, `all`): un
-  // state ajeno, aunque esté bien firmado, no guarda nada.
-  if (!state || state.scopeId !== scope.id || state.product !== "ads") return fail("state_invalid");
+  // El state tiene que ser del alcance logueado (y ese alcance, `all`) y del
+  // proyecto que la sesión tiene abierto AHORA: si en otra pestaña se cambió de
+  // proyecto a mitad del diálogo, no se guarda nada en ninguno.
+  if (
+    !state ||
+    state.scopeId !== scope.id ||
+    state.projectId !== client.id ||
+    state.product !== "ads"
+  )
+    return fail("state_invalid");
   // …y del navegador que empezó el flujo: el nonce de la cookie que dejó
   // /connect tiene que ser el mismo del state.
   const nonceCookie = (await cookies()).get(OAUTH_COOKIE)?.value ?? "";
@@ -66,11 +76,10 @@ export async function GET(req: Request) {
     const [me, accounts] = await Promise.all([fetchMe(token), listAdAccounts(token)]);
     if (accounts.length === 0) return fail("no_accounts");
 
-    await writeMetaConnection("ads", {
+    await writeMetaConnection(client, "ads", {
       token,
       tokenKind: info.type === "SYSTEM_USER" || info.expiresAt === null ? "system_user" : "user",
       tokenExpiresAt: info.expiresAt,
-      businessId: null,
       connectedBy: me.name || null,
       availableAccounts: accounts,
     });

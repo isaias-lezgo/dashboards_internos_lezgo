@@ -1,8 +1,9 @@
 // app/api/meta/connect/route.ts
-// Arranca el OAuth con Meta: firma un state con el alcance y redirige al diálogo
-// de Facebook Login for Business. Solo el alcance `all`: la conexión es del
-// despliegue, no de un proyecto.
+// Arranca el OAuth con Meta para EL PROYECTO DE LA SESIÓN: firma un state con el
+// alcance y el proyecto y redirige al diálogo de Facebook Login for Business.
+// Solo el alcance `all`.
 import { requireMetaAdmin, forbidden, metaConfigured } from "@/lib/meta-admin";
+import { requireClient, unauthorized } from "@/lib/session";
 import { isDbConfigured } from "@/lib/db";
 import {
   buildDialogUrl,
@@ -18,6 +19,8 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const scope = await requireMetaAdmin();
   if (!scope) return forbidden();
+  const client = await requireClient();
+  if (!client) return unauthorized();
 
   // Un preview de Vercel tiene URL aleatoria y no se puede registrar en la app.
   if (process.env.VERCEL_ENV === "preview") {
@@ -32,7 +35,7 @@ export async function GET(req: Request) {
     return Response.json({ error: "no_db" }, { status: 503 });
   }
 
-  const state = await signState({ scopeId: scope.id, product: "ads", returnTo: "/" });
+  const state = await signState({ scopeId: scope.id, projectId: client.id, product: "ads", returnTo: "/" });
   const url = buildDialogUrl({
     appId: process.env.META_APP_ID!,
     configId: process.env.META_LOGIN_CONFIG_ID!,

@@ -2,14 +2,11 @@
 // Estado de la conexión para la píldora del header. Cualquier sesión con
 // proyecto abierto lo lee (la píldora se dibuja para todos); `canManage` dice si
 // además puede tocarla. Nunca devuelve el token.
+// Todo es del proyecto de la sesión: cada proyecto tiene su propia conexión.
 import { requireClient, unauthorized } from "@/lib/session";
 import { requireMetaAdmin, forbidden, metaConfigured } from "@/lib/meta-admin";
 import { isDbConfigured } from "@/lib/db";
-import {
-  readMetaConnection,
-  readProjectAccounts,
-  deleteMetaConnection,
-} from "@/lib/meta-connection-store";
+import { readMetaConnection, deleteMetaConnection } from "@/lib/meta-connection-store";
 
 export const runtime = "nodejs";
 
@@ -22,9 +19,8 @@ export async function GET() {
   if (!isDbConfigured()) return Response.json({ connected: false, canManage, reason: "no_db" });
 
   let conn;
-  let selected: string[];
   try {
-    [conn, selected] = await Promise.all([readMetaConnection("ads"), readProjectAccounts(client, "ads")]);
+    conn = await readMetaConnection(client, "ads");
   } catch (err) {
     console.error("[meta] no se pudo leer la conexión:", err);
     return Response.json({ connected: false, canManage, reason: "no_db" });
@@ -36,7 +32,7 @@ export async function GET() {
       reason: process.env.VERCEL_ENV === "preview" ? "preview" : undefined,
     });
   }
-  const sel = new Set(selected);
+  const sel = new Set(conn.accountIds);
   return Response.json({
     connected: true,
     canManage,
@@ -50,8 +46,10 @@ export async function GET() {
 
 export async function DELETE() {
   if (!(await requireMetaAdmin())) return forbidden();
+  const client = await requireClient();
+  if (!client) return unauthorized();
   try {
-    await deleteMetaConnection("ads");
+    await deleteMetaConnection(client, "ads");
   } catch (err) {
     console.error("[meta] no se pudo desconectar:", err);
     return Response.json({ error: "db" }, { status: 503 });

@@ -1,5 +1,5 @@
 // app/api/meta/accounts/route.ts
-// Qué cuentas de las concedidas mira EL PROYECTO DE LA SESIÓN. Solo el alcance
+// Qué cuentas de las que ve la conexión de este proyecto mira EL PROYECTO DE LA SESIÓN. Solo el alcance
 // `all`. La validación real (que cada id esté en available_accounts) vive en el
 // store, no aquí. Una lista vacía es válida: quita Meta a este proyecto.
 import { requireClient, unauthorized } from "@/lib/session";
