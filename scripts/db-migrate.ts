@@ -1,4 +1,4 @@
-// Crea las tablas del caché, de Meta y de la bitácora del PMI. Idempotent — safe to run on every deploy or by hand.
+// Crea las tablas del caché, de Meta (por proyecto) y de la bitácora del PMI. Idempotent — safe to run on every deploy or by hand.
 // Run: pnpm db:migrate
 //
 // No migration framework: one table does not justify one, and the repo has no
@@ -7,6 +7,7 @@
 // Wrapped in main() rather than using top-level await: this package is CJS
 // ("type" is not "module"), so tsx compiles to CJS where TLA is unavailable.
 import { neon } from "@neondatabase/serverless";
+import { backfillProjectConnections } from "../lib/meta-connection-store";
 
 async function main() {
   // DDL goes through the UNPOOLED connection: pgbouncer in transaction mode
@@ -54,6 +55,26 @@ async function main() {
     )
   `;
 
+  // La conexión con Meta POR PROYECTO (reemplaza a meta_connection +
+  // meta_project_accounts, que se quedan como respaldo y ya nadie lee). Token,
+  // cuentas que ese token ve y cuentas que el proyecto mira, en una fila. NO es
+  // desechable: si se borra, ese proyecto vuelve a apretar "Conectar con Meta".
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_project_connection (
+      project_id          text        NOT NULL,
+      product             text        NOT NULL,
+      token_encrypted     bytea       NOT NULL,
+      token_kind          text        NOT NULL,
+      token_expires_at    timestamptz,
+      connected_by        text,
+      available_accounts  jsonb       NOT NULL,
+      account_ids         jsonb       NOT NULL DEFAULT '[]'::jsonb,
+      connected_at        timestamptz NOT NULL,
+      updated_at          timestamptz NOT NULL,
+      PRIMARY KEY (project_id, product)
+    )
+  `;
+
   // La bitácora de hitos del PMI: la PRIMERA vez que cada oportunidad cruzó
   // perfilado / apartado / cierre. NO es desechable: GHL no guarda cuándo una
   // oportunidad entró a su etapa, así que borrar esta tabla pierde esas fechas
@@ -69,7 +90,7 @@ async function main() {
     )
   `;
 
-  for (const table of ["project_sync", "meta_connection", "meta_project_accounts", "opportunity_milestones"]) {
+  for (const table of ["project_sync", "meta_connection", "meta_project_accounts", "meta_project_connection", "opportunity_milestones"]) {
     const rows = await sql`
       SELECT column_name, data_type
         FROM information_schema.columns
@@ -78,6 +99,20 @@ async function main() {
     `;
     console.log(`✅ ${table} lista:`);
     for (const r of rows) console.log(`   ${r.column_name} ${r.data_type}`);
+  }
+
+  // Copia la conexión del despliegue a cada proyecto que tenía cuentas
+  // asignadas. Idempotente: nunca pisa una conexión por proyecto ya hecha.
+  // Usa getSql() (DATABASE_URL); sin ella se salta.
+  if (process.env.DATABASE_URL) {
+    const copied = await backfillProjectConnections("ads");
+    console.log(
+      copied.length > 0
+        ? `✅ conexión de Meta copiada a: ${copied.join(", ")}`
+        : "✅ nada que copiar de meta_connection (ya copiado o sin asignaciones)"
+    );
+  } else {
+    console.log("⚠️  Sin DATABASE_URL: se omite la copia de la conexión de Meta.");
   }
 }
 
