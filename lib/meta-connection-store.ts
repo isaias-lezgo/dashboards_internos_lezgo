@@ -192,10 +192,16 @@ export async function deleteMetaConnection(client: ClientConfig, product: MetaPr
 
 // Migración desde el modelo de una conexión por despliegue: copia esa conexión a
 // cada proyecto con cuentas asignadas. Nunca pisa una conexión por proyecto ya
-// hecha, así que correrla dos veces no hace nada. Devuelve los proyectos copiados.
+// hecha. Corre UNA sola vez por producto (marca en meta_backfill): las tablas
+// viejas se quedan como respaldo, y sin la marca un db:migrate posterior
+// resucitaría la conexión de un proyecto que alguien desconectó a propósito.
+// Devuelve los proyectos copiados.
 export async function backfillProjectConnections(product: MetaProduct): Promise<string[]> {
   if (!isDbConfigured()) return [];
-  const rows = (await getSql()`
+  const sql = getSql();
+  const done = await sql`SELECT 1 FROM meta_backfill WHERE product = ${product}`;
+  if (done.length > 0) return [];
+  const rows = (await sql`
     INSERT INTO meta_project_connection (
       project_id, product, token_encrypted, token_kind, token_expires_at,
       connected_by, available_accounts, account_ids, connected_at, updated_at
@@ -208,5 +214,8 @@ export async function backfillProjectConnections(product: MetaProduct): Promise<
     ON CONFLICT (project_id, product) DO NOTHING
     RETURNING project_id
   `) as { project_id: string }[];
+  // La marca va DESPUÉS de la copia: si la copia falla, la próxima corrida
+  // reintenta (ON CONFLICT la hace inofensiva).
+  await sql`INSERT INTO meta_backfill (product, done_at) VALUES (${product}, now()) ON CONFLICT DO NOTHING`;
   return rows.map((r) => r.project_id).sort();
 }

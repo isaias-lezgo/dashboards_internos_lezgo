@@ -75,6 +75,15 @@ async function main() {
     )
   `;
 
+  // Qué productos ya copiaron la conexión vieja a meta_project_connection. La
+  // copia corre una sola vez: repetirla deshacería un "Desconectar".
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_backfill (
+      product  text        PRIMARY KEY,
+      done_at  timestamptz NOT NULL
+    )
+  `;
+
   // La bitácora de hitos del PMI: la PRIMERA vez que cada oportunidad cruzó
   // perfilado / apartado / cierre. NO es desechable: GHL no guarda cuándo una
   // oportunidad entró a su etapa, así que borrar esta tabla pierde esas fechas
@@ -90,7 +99,7 @@ async function main() {
     )
   `;
 
-  for (const table of ["project_sync", "meta_connection", "meta_project_accounts", "meta_project_connection", "opportunity_milestones"]) {
+  for (const table of ["project_sync", "meta_connection", "meta_project_accounts", "meta_project_connection", "meta_backfill", "opportunity_milestones"]) {
     const rows = await sql`
       SELECT column_name, data_type
         FROM information_schema.columns
@@ -102,14 +111,15 @@ async function main() {
   }
 
   // Copia la conexión del despliegue a cada proyecto que tenía cuentas
-  // asignadas. Idempotente: nunca pisa una conexión por proyecto ya hecha.
+  // asignadas. Una sola vez por producto (meta_backfill), y nunca pisa una
+  // conexión por proyecto ya hecha.
   // Usa getSql() (DATABASE_URL); sin ella se salta.
   if (process.env.DATABASE_URL) {
     const copied = await backfillProjectConnections("ads");
     console.log(
       copied.length > 0
         ? `✅ conexión de Meta copiada a: ${copied.join(", ")}`
-        : "✅ nada que copiar de meta_connection (ya copiado o sin asignaciones)"
+        : "✅ nada que copiar de meta_connection (copia ya hecha o sin asignaciones)"
     );
   } else {
     console.log("⚠️  Sin DATABASE_URL: se omite la copia de la conexión de Meta.");

@@ -14,9 +14,9 @@ pnpm lint       # Run ESLint
 # Multi-client
 pnpm add-client # Add a project to the DASHBOARD_CLIENTS roster (prompts, validates, prints the blob)
                 #   Non-interactive: pnpm add-client --name "X" --location <id> --token pit-…
-pnpm db:migrate # Crea/verifica project_sync, meta_connection, meta_project_accounts, meta_project_connection
-                #   y opportunity_milestones en Neon, y copia la conexión vieja de Meta a los proyectos
-                #   con cuentas asignadas. Idempotente.
+pnpm db:migrate # Crea/verifica project_sync, meta_connection, meta_project_accounts, meta_project_connection,
+                #   meta_backfill y opportunity_milestones en Neon, y copia UNA vez (marca en meta_backfill)
+                #   la conexión vieja de Meta a los proyectos con cuentas asignadas. Idempotente.
 
 # Verification (see below — there is no test framework)
 pnpm verify:clients      # lib/clients.ts   — roster parsing

@@ -54,6 +54,8 @@ async function cleanup() {
   await sql`DELETE FROM meta_project_connection WHERE product = ${P}`;
   await sql`DELETE FROM meta_connection WHERE product = ${P}`;
   await sql`DELETE FROM meta_project_accounts WHERE product = ${P}`;
+  await sql`CREATE TABLE IF NOT EXISTS meta_backfill (product text PRIMARY KEY, done_at timestamptz NOT NULL)`;
+  await sql`DELETE FROM meta_backfill WHERE product = ${P}`;
 }
 
 async function main() {
@@ -167,6 +169,12 @@ async function main() {
   assert.equal(await readMetaConnection(D, P), null, "D (lista vacía) no se copia");
   assert.equal((await readMetaConnectionWithToken(B, P))?.token, "EAAB-secreto-b", "B no se pisa");
   assert.deepEqual(await backfillProjectConnections(P), [], "segunda corrida: nada");
+
+  // --- un "Desconectar" posterior NO se deshace al volver a correr db:migrate:
+  // la copia corre una sola vez por producto
+  await deleteMetaConnection(C, P);
+  assert.deepEqual(await backfillProjectConnections(P), [], "tras desconectar C, la copia no lo resucita");
+  assert.equal(await readMetaConnection(C, P), null);
 
   await cleanup();
   console.log("✅ verify:meta-connection-store OK");
