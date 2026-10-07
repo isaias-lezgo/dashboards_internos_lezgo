@@ -1,6 +1,6 @@
 // components/dashboard/meta-connection.tsx
-// La píldora "Meta" del header: conectar, ver el estado, asignar cuentas al
-// proyecto abierto, reconectar o desconectar. Es el ÚNICO lugar de la UI que
+// La píldora "Meta" del header: conectar ESTE proyecto, ver el estado, elegir
+// sus cuentas, reconectar o desconectar. Es el ÚNICO lugar de la UI que
 // sabe del OAuth; las cards de costo (entrega ②) solo miran data.metaAds.
 //
 // Todos ven el estado; solo `canManage` (alcance all) ve acciones. Ámbar solo
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { MetaAdsStatus } from "@/lib/types"
+import { EXPIRY_WARNING_DAYS, tokenExpiryDays } from "@/lib/meta-expiry"
 
 interface AccountRow {
   id: string
@@ -43,11 +44,11 @@ type ConnectionState =
     }
 
 const ERROR_COPY: Record<string, string> = {
-  state_invalid: "La conexión expiró. Inténtalo de nuevo.",
+  state_invalid: "La conexión expiró o cambiaste de proyecto. Inténtalo de nuevo.",
   denied: "Conexión cancelada.",
   token_exchange: "Meta no aceptó la autorización. Inténtalo de nuevo.",
   token_invalid: "Meta devolvió un token inválido. Inténtalo de nuevo.",
-  no_accounts: "Esa empresa no compartió cuentas publicitarias.",
+  no_accounts: "Ese Facebook no ve ninguna cuenta publicitaria.",
   db: "No se pudo guardar la conexión.",
 }
 
@@ -107,6 +108,8 @@ export function MetaConnectionPill({
 
   const revoked = status?.state === "error" && status.reason !== "failed"
   const failedIds = status?.state === "partial" ? status.failedAccounts.map((f) => f.id) : []
+  const expiryDays = state?.connected ? tokenExpiryDays(state.tokenExpiresAt) : null
+  const expiring = !revoked && expiryDays !== null && expiryDays <= EXPIRY_WARNING_DAYS
 
   const openDialog = () => {
     if (!state?.connected) return
@@ -137,7 +140,7 @@ export function MetaConnectionPill({
   const disconnect = async () => {
     if (
       !window.confirm(
-        "¿Desconectar Meta? El gasto dejará de actualizarse en TODOS los proyectos. Las cuentas asignadas se conservan. Esto no revoca el acceso en Meta; eso se hace desde el Business Manager."
+        "¿Desconectar Meta de este proyecto? Su gasto dejará de actualizarse y se olvidan sus cuentas elegidas. Los demás proyectos no cambian. Esto no revoca el acceso en Meta; eso se hace desde el Business Manager."
       )
     )
       return
@@ -165,13 +168,17 @@ export function MetaConnectionPill({
   const selected = state.accounts.filter((a) => a.selected)
   const tone = revoked
     ? "border-red-400/60 text-red-200"
-    : failedIds.length > 0
+    : failedIds.length > 0 || expiring
       ? "border-[#F59B1B]/70 text-[#F59B1B]"
       : selected.length === 0
         ? "text-white/60"
         : ""
   const label = revoked
     ? "Meta desconectado"
+    : expiring
+      ? expiryDays! <= 0
+        ? "Meta · token caducado"
+        : `Meta · caduca en ${expiryDays} ${expiryDays === 1 ? "día" : "días"}`
     : failedIds.length > 0
       ? `Meta · ${failedIds.length === 1 ? "una cuenta no respondió" : `${failedIds.length} cuentas no respondieron`}`
       : selected.length === 0
@@ -180,7 +187,7 @@ export function MetaConnectionPill({
 
   const pill = (
     <Button variant="outline" size="sm" className={`${PILL} ${tone}`}>
-      {revoked || failedIds.length > 0 ? <AlertTriangle className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+      {revoked || failedIds.length > 0 || expiring ? <AlertTriangle className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
       {label}
       {state.canManage && <ChevronDown className="h-3 w-3 opacity-70" />}
     </Button>
@@ -208,22 +215,31 @@ export function MetaConnectionPill({
           )}
           {failedIds.length > 0 && (
             <p className="px-2 py-1 text-xs text-muted-foreground">
-              Sin respuesta: {failedIds.join(", ")}. Si la cuenta es de otra empresa, hay que compartirla en el Business Manager.
+              Sin respuesta: {failedIds.join(", ")}. Quien conectó ya no ve esa cuenta: reconecta con alguien que sí tenga acceso.
             </p>
           )}
           {state.tokenExpiresAt && (
-            <p className="px-2 py-1 text-xs text-muted-foreground">
-              Token de usuario: caduca el {new Date(state.tokenExpiresAt).toLocaleDateString("es-MX")}.
+            <p className={`px-2 py-1 text-xs ${expiring ? "text-[#B86E0A] dark:text-[#F59B1B]" : "text-muted-foreground"}`}>
+              Token de usuario: {expiryDays !== null && expiryDays <= 0 ? "caducó" : "caduca"} el{" "}
+              {new Date(state.tokenExpiresAt).toLocaleDateString("es-MX")}.
+              {expiring ? " Reconecta para que el gasto siga actualizándose." : ""}
             </p>
           )}
-          {revoked ? (
-            <Button variant="default" size="sm" className="w-full justify-start" asChild>
-              <a href="/api/meta/connect">Reconectar</a>
-            </Button>
+          {revoked || expiring ? (
+            <>
+              <Button variant="default" size="sm" className="w-full justify-start" asChild>
+                <a href="/api/meta/connect">Reconectar</a>
+              </Button>
+              {!revoked && (
+                <Button variant="ghost" size="sm" className="w-full justify-start" onClick={openDialog}>
+                  {selected.length === 0 ? "Elegir cuenta de este proyecto" : "Cambiar cuentas de este proyecto"}
+                </Button>
+              )}
+            </>
           ) : (
             <>
               <Button variant="ghost" size="sm" className="w-full justify-start" onClick={openDialog}>
-                {selected.length === 0 ? "Asignar cuenta a este proyecto" : "Cambiar cuentas de este proyecto"}
+                {selected.length === 0 ? "Elegir cuenta de este proyecto" : "Cambiar cuentas de este proyecto"}
               </Button>
               <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
                 <a href="/api/meta/connect">Reconectar</a>
@@ -241,9 +257,9 @@ export function MetaConnectionPill({
           <DialogHeader>
             <DialogTitle>Cuentas publicitarias de este proyecto</DialogTitle>
             <DialogDescription>
-              De las cuentas que la empresa compartió, elige cuáles alimentan a este proyecto. Una cuenta
-              puede estar en varios proyectos. Sin ninguna, el proyecto no muestra gasto. Para compartir más
-              cuentas, vuelve a conectar.
+              De las cuentas que ve quien conectó este proyecto, elige cuáles alimentan su gasto. Sin
+              ninguna, el proyecto no muestra gasto. Para ver otras cuentas, reconecta con un Facebook que
+              tenga acceso a ellas.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-80 space-y-2 overflow-y-auto">

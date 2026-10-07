@@ -20,6 +20,7 @@ import {
   STATE_MAX_AGE_MS,
   OAUTH_COOKIE,
 } from "../lib/meta-oauth";
+import { tokenExpiryDays, EXPIRY_WARNING_DAYS } from "../lib/meta-expiry";
 
 async function main() {
   const now = 1_800_000_000_000;
@@ -121,6 +122,16 @@ async function main() {
 
   // --- el nombre de la cookie del nonce es un contrato entre connect y callback
   assert.equal(OAUTH_COOKIE, "meta_oauth");
+
+  // --- caducidad de un token de usuario (plan B)
+  const t0 = Date.parse("2026-10-07T12:00:00Z");
+  assert.equal(tokenExpiryDays(null, t0), null, "usuario del sistema: no caduca");
+  assert.equal(tokenExpiryDays("no-es-fecha", t0), null);
+  assert.equal(tokenExpiryDays("2026-10-21T12:00:00Z", t0), 14);
+  assert.equal(tokenExpiryDays("2026-10-21T11:00:00Z", t0), 14, "redondea hacia arriba");
+  assert.equal(tokenExpiryDays("2026-10-07T13:00:00Z", t0), 1, "caduca hoy más tarde = 1");
+  assert.ok((tokenExpiryDays("2026-10-04T12:00:00Z", t0) ?? 1) <= 0, "caducado → ≤ 0");
+  assert.equal(EXPIRY_WARNING_DAYS, 14);
 
   console.log("✅ verify:meta-oauth OK");
 }
