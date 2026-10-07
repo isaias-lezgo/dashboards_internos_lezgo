@@ -6,16 +6,18 @@
 // usan las rutas de app/api/meta/*. Web Crypto (crypto.subtle) igual que
 // lib/auth.ts, así que corre en Node y en Edge sin cambios.
 //
-// El `state` lleva el id del ALCANCE dentro del payload firmado. En este
-// despliegue la conexión es una por instalación, así que lo que el callback
-// exige es que el state venga de una sesión del alcance `all` — la misma que
-// puede apretar "Conectar". Un state ajeno bien firmado no debe guardar nada.
+// El `state` lleva el id del ALCANCE y el del PROYECTO dentro del payload firmado.
+// La conexión es una por proyecto: el callback exige que el state venga de una
+// sesión del alcance `all` y que su proyecto sea el que la sesión tiene abierto.
+// Un state ajeno bien firmado no debe guardar nada.
 import { safeEqual } from "./auth";
 
 export type MetaProduct = "ads" | "whatsapp";
 
 export interface MetaState {
   scopeId: string;
+  /** El proyecto cuya conexión se está creando. El callback exige que sea el de la sesión. */
+  projectId: string;
   product: MetaProduct;
   /** Ruta relativa a la que regresar tras el callback (siempre empieza con "/"). */
   returnTo: string;
@@ -98,6 +100,7 @@ export async function verifyState(
   if (!parsed || typeof parsed !== "object") return null;
   const s = parsed as Partial<MetaState>;
   if (typeof s.scopeId !== "string" || !s.scopeId) return null;
+  if (typeof s.projectId !== "string" || !s.projectId) return null;
   if (s.product !== "ads" && s.product !== "whatsapp") return null;
   if (typeof s.returnTo !== "string" || !s.returnTo.startsWith("/")) return null;
   if (typeof s.nonce !== "string" || typeof s.iat !== "number") return null;

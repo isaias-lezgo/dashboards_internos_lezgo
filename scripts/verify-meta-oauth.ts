@@ -1,7 +1,7 @@
 // Verificación de lib/meta-oauth.ts. Correr: pnpm verify:meta-oauth
 //
-// El `state` del OAuth lleva el id del cliente; si se pudiera manipular, el
-// callback guardaría el token de la empresa de A en la fila de B. Por eso este
+// El `state` del OAuth lleva el alcance y el proyecto; si se pudiera manipular,
+// el callback guardaría el token de un proyecto en la fila de otro. Por eso este
 // script ejercita el rechazo de un state manipulado igual que verify:auth
 // ejercita la cookie.
 //
@@ -25,10 +25,11 @@ async function main() {
   const now = 1_800_000_000_000;
 
   // --- state: ida y vuelta
-  const state = await signState({ scopeId: "all", product: "ads", returnTo: "/" }, now);
+  const state = await signState({ scopeId: "all", projectId: "condesa", product: "ads", returnTo: "/" }, now);
   const back = await verifyState(state, now + 1000);
   assert.ok(back, "un state recién firmado verifica");
   assert.equal(back.scopeId, "all");
+  assert.equal(back.projectId, "condesa", "el proyecto viaja firmado");
   assert.equal(back.product, "ads");
   assert.equal(back.returnTo, "/");
   assert.equal(back.iat, now);
@@ -36,7 +37,7 @@ async function main() {
   assert.ok(back.nonce.length >= 16, "el nonce tiene entropía");
 
   // --- dos firmas del mismo input difieren (nonce), y ambas verifican
-  const state2 = await signState({ scopeId: "all", product: "ads", returnTo: "/" }, now);
+  const state2 = await signState({ scopeId: "all", projectId: "condesa", product: "ads", returnTo: "/" }, now);
   assert.notEqual(state, state2);
   assert.ok(await verifyState(state2, now));
 
@@ -45,6 +46,15 @@ async function main() {
   const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
   const forged = Buffer.from(JSON.stringify({ ...payload, scopeId: "domus" }), "utf8").toString("base64url");
   assert.equal(await verifyState(`${forged}.${sig}`, now), null, "state con scopeId ajeno (domus) se rechaza");
+
+  // --- cambiar el proyecto dentro del payload también invalida la firma: un OAuth
+  // iniciado en Condesa no puede guardarse en Yconia
+  const forgedProject = Buffer.from(JSON.stringify({ ...payload, projectId: "yconia" }), "utf8").toString("base64url");
+  assert.equal(await verifyState(`${forgedProject}.${sig}`, now), null, "state con projectId ajeno se rechaza");
+
+  // --- un state bien firmado SIN projectId (formato viejo) se rechaza
+  const legacy = await signState({ scopeId: "all", product: "ads", returnTo: "/" } as never, now);
+  assert.equal(await verifyState(legacy, now), null, "state sin projectId se rechaza");
 
   // --- firma alterada
   assert.equal(await verifyState(`${payloadB64}.deadbeef`, now), null);
