@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils"
 import { semaphore, type PmiCounts, type PmiIndicator, type PmiObjectives, type PmiSlice, type PmiWeek } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
-import { INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
+import { INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass, zeroText, zeroTone } from "./pmi-ui"
 
 // Filas de la tabla: los seis conteos y los tres montos. Los montos no son
 // indicadores con ids propios: abren el drill de su conteo.
@@ -101,7 +101,7 @@ export function PmiPeriodTable({
                             onClick={() => onCell(drillKind, ids, col.drillLabel)}
                             className={cn(
                               "w-full rounded px-1.5 py-1 text-right transition-colors",
-                              toneClass(semaphore(v, col.objectives[row.key])),
+                              toneClass(zeroTone(v, semaphore(v, col.objectives[row.key]))),
                               ids.length > 0 ? "hover:ring-1 hover:ring-primary/40" : "cursor-default",
                             )}
                           >
@@ -110,9 +110,9 @@ export function PmiPeriodTable({
                         </td>
                       )
                     })}
-                    <td className={cn("py-1 px-2 text-right font-semibold", toneClass(semaphore(totalValue, objPeriod)))}>{fmt(totalValue)}</td>
+                    <td className={cn("py-1 px-2 text-right font-semibold", toneClass(zeroTone(totalValue, semaphore(totalValue, objPeriod))))}>{fmt(totalValue)}</td>
                     <td className="py-1.5 pl-2 text-right text-muted-foreground">{objPeriod > 0 ? fmt(objPeriod) : "—"}</td>
-                    <td className="py-1.5 pl-2 text-right">{fmtPct(objPeriod > 0 ? totalValue / objPeriod : null)}</td>
+                    <td className={cn("py-1.5 pl-2 text-right", zeroText(objPeriod > 0 ? totalValue / objPeriod : null))}>{fmtPct(objPeriod > 0 ? totalValue / objPeriod : null)}</td>
                   </tr>
                 )
               })}

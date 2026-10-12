@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PMI_CONVERSION_TARGETS, semaphore, type PmiConversions, type PmiCounts, type PmiIndicator, type PmiObjectives } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
-import { AdvisorAvatar, INDICATOR_LABELS, conversionTone, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
+import { AdvisorAvatar, INDICATOR_LABELS, conversionTone, fmtInt, fmtMxn, fmtPct, toneClass, zeroText } from "./pmi-ui"
 
 // El embudo del PMI: los cinco hitos del mes como escalones que se estrechan,
 // con la conversión entre cada par. Reemplaza a los cinco tiles y la tira de
@@ -120,7 +120,7 @@ export function PmiFunnel({
                         {o[kind] > 0 ? <>objetivo {fmtInt(o[kind])}{mo !== null && mo > 0 && ` · ${fmtMxn(mo)}`}</> : "sin objetivo"}
                       </span>
                     </span>
-                    <span className="text-2xl font-semibold tabular-nums leading-none">{fmtInt(value)}</span>
+                    <span className={cn("text-2xl font-semibold tabular-nums leading-none", zeroText(value))}>{fmtInt(value)}</span>
                     <span className={cn("w-14 shrink-0 rounded px-1.5 py-0.5 text-center text-[11px] font-medium tabular-nums", toneClass(tone))}>
                       {fmtPct(avance)}
                     </span>
@@ -130,7 +130,7 @@ export function PmiFunnel({
                   <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <ChevronDown className="h-3 w-3" aria-hidden />
                     <span>{CONVERSION_SHORT[conversion]}</span>
-                    <span className={cn("rounded px-1.5 py-px font-semibold tabular-nums", toneClass(conversionTone(convValue, convTarget)))}>{fmtPct(convValue)}</span>
+                    <span className={cn("rounded px-1.5 py-px font-semibold tabular-nums", toneClass(convValue === 0 ? "bajo" : conversionTone(convValue, convTarget)))}>{fmtPct(convValue)}</span>
                     <span>meta {fmtPct(convTarget)}</span>
                   </span>
                 )}

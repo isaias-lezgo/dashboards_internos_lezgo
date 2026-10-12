@@ -4,7 +4,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { PMI_OBJECTIVES, type PmiCounts, type PmiIndicator, type PmiYear, type PmiYearRankingRow } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
-import { INDICATOR_LABELS, AdvisorAvatar, fmtInt, fmtMxn, fmtPct } from "./pmi-ui"
+import { INDICATOR_LABELS, AdvisorAvatar, fmtInt, fmtMxn, fmtPct, zeroText } from "./pmi-ui"
 import { PmiRankingChart } from "./pmi-ranking-chart"
 import { MonthlyMoneyLine, QuarterRankings } from "./pmi-year-charts"
 
@@ -30,7 +30,7 @@ function Cell({ c, metric, onClick, strong }: { c: PmiCounts; metric: MetricDef;
     <td className="px-0.5 py-0.5 text-right">
       <button type="button" disabled={ids.length === 0} onClick={onClick}
         className={cn("w-full rounded px-1 py-0.5 text-right", strong && "font-semibold",
-          ids.length > 0 ? "hover:bg-primary/10" : "cursor-default text-muted-foreground")}>
+          ids.length > 0 ? "hover:bg-primary/10" : "cursor-default text-muted-foreground", zeroText(v))}>
         {metric.money ? fmtMxn(v) : fmtInt(v)}
       </button>
     </td>
@@ -60,11 +60,11 @@ function YearRanking({ title, rows, objective }: { title: string; rows: PmiYearR
               {rows.map((r) => (
                 <tr key={r.name} className="border-t border-border/60">
                   <td className="py-1.5 pr-2 font-medium"><span className="flex items-center gap-2"><AdvisorAvatar name={r.name} className="h-5 w-5 text-[9px]" />{r.name}</span></td>
-                  <td className="py-1.5 px-2 text-right">{fmtMxn(r.monto)}</td>
-                  <td className="py-1.5 px-2 text-right">{fmtInt(r.count)}</td>
-                  <td className="py-1.5 px-2 text-right">{r.mesesActivo}</td>
-                  <td className="py-1.5 px-2 text-right">{r.promedio === null ? "—" : fmtMxn(r.promedio)}</td>
-                  <td className="py-1.5 px-2 text-right">{fmtPct(r.avance)}</td>
+                  <td className={cn("py-1.5 px-2 text-right", zeroText(r.monto))}>{fmtMxn(r.monto)}</td>
+                  <td className={cn("py-1.5 px-2 text-right", zeroText(r.count))}>{fmtInt(r.count)}</td>
+                  <td className={cn("py-1.5 px-2 text-right", zeroText(r.mesesActivo))}>{r.mesesActivo}</td>
+                  <td className={cn("py-1.5 px-2 text-right", zeroText(r.promedio))}>{r.promedio === null ? "—" : fmtMxn(r.promedio)}</td>
+                  <td className={cn("py-1.5 px-2 text-right", zeroText(r.avance))}>{fmtPct(r.avance)}</td>
                   <td className="py-1.5 pl-2 text-right">{fmtMxn(r.paraLlegar)}</td>
                 </tr>
               ))}
@@ -133,8 +133,8 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
                     {a.byMonth.map((c, i) => futureMonth(i) ? futureCell(i) : <Cell key={i} c={c} metric={metric} onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · ${MONTHS[i]} ${year.year}`)} />)}
                     {a.byQuarter.map((c, q) => <Cell key={`q${q}`} c={c} metric={metric} strong onClick={() => onCell(metric.drill, c.ids[metric.drill], `${a.name} · T${q + 1} ${year.year}`)} />)}
                     <Cell c={a.total} metric={metric} strong onClick={() => onCell(metric.drill, a.total.ids[metric.drill], `${a.name} · ${year.year}`)} />
-                    <td className="py-1 px-1 text-right">{a.mesesActivo}</td>
-                    <td className="py-1 pl-1 text-right">{a.promedio ? fmtAvg(a.promedio[metric.key]) : "—"}</td>
+                    <td className={cn("py-1 px-1 text-right", zeroText(a.mesesActivo))}>{a.mesesActivo}</td>
+                    <td className={cn("py-1 pl-1 text-right", zeroText(a.promedio?.[metric.key]))}>{a.promedio ? fmtAvg(a.promedio[metric.key]) : "—"}</td>
                   </tr>
                 ))}
                 <tr className="border-t-2 border-border font-semibold">
@@ -146,7 +146,7 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
                 </tr>
                 <tr className="text-muted-foreground">
                   <td className="py-1 pr-2">% meta</td>
-                  {year.team.pctMeta.map((p, i) => <td key={i} className="px-1 py-1 text-right">{futureMonth(i) ? "—" : fmtPct(p ? p[metric.key] : null)}</td>)}
+                  {year.team.pctMeta.map((p, i) => <td key={i} className={cn("px-1 py-1 text-right", !futureMonth(i) && zeroText(p ? p[metric.key] : null))}>{futureMonth(i) ? "—" : fmtPct(p ? p[metric.key] : null)}</td>)}
                   <td colSpan={7} />
                 </tr>
               </tbody>
@@ -166,7 +166,7 @@ export function PmiYearView({ year, onCell }: { year: PmiYear; onCell: (kind: Pm
             {year.advisors.map((a) => (
               <li key={a.name} className="flex justify-between gap-2 rounded border border-border px-3 py-2">
                 <span className="truncate">{a.name}</span>
-                <span className="shrink-0 tabular-nums">{a.ticketPromedio === null ? "—" : fmtMxn(a.ticketPromedio)}</span>
+                <span className={cn("shrink-0 tabular-nums", zeroText(a.ticketPromedio))}>{a.ticketPromedio === null ? "—" : fmtMxn(a.ticketPromedio)}</span>
               </li>
             ))}
           </ul>

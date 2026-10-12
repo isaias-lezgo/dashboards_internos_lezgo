@@ -29,6 +29,17 @@ export function toneClass(tone: PmiTone): string {
   }
 }
 
+// Un cero en Desempeño siempre es rojo, tenga objetivo o no: es lo primero que
+// la consultoría busca en el tablero. Una celda con semáforo toma el tono "bajo";
+// una sin semáforo (montos, conversiones) solo pinta el texto.
+export function zeroTone(v: number | null, tone: PmiTone): PmiTone {
+  return v === 0 ? "bajo" : tone
+}
+
+export function zeroText(v: number | null | undefined): string | undefined {
+  return v === 0 ? "text-rose-700 dark:text-rose-300" : undefined
+}
+
 // El mismo semáforo para las barras de Recharts, que no leen clases de Tailwind.
 // Tonos medios que aguantan los dos temas; el nulo es el gris de la interfaz.
 export function toneFill(tone: PmiTone): string {

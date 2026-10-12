@@ -2,13 +2,14 @@
 
 import { CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
+import { cn } from "@/lib/utils"
 import { PMI_OBJECTIVES, type PmiIndicator, type PmiQuarter, type PmiYear } from "@/lib/pmi"
 import {
   DashboardCard, ChartCardHeader, ChartCardContent, ChartEmpty, ScopePill,
   NonZeroTooltipContent, CHART_TICK, CHART_GRID_STROKE, STRUCTURAL_NAVY,
 } from "./dashboard-ui"
 import { PmiRankingChart } from "./pmi-ranking-chart"
-import { fmtMxn, fmtMxnCompact, fmtPct } from "./pmi-ui"
+import { fmtMxn, fmtMxnCompact, fmtPct, zeroText } from "./pmi-ui"
 
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
@@ -74,7 +75,7 @@ function QuarterFooter({ q, kind }: { q: PmiQuarter; kind: MoneyKind }) {
   const avance = objective !== null && objective > 0 ? monto / objective : null
   return (
     <div className="mt-2 flex items-baseline justify-between gap-2 border-t border-border/60 pt-2 text-xs">
-      <span className="font-semibold tabular-nums">{fmtMxn(monto)}</span>
+      <span className={cn("font-semibold tabular-nums", zeroText(monto))}>{fmtMxn(monto)}</span>
       <span className="text-muted-foreground tabular-nums">{avance === null ? "sin meta" : `${fmtPct(avance)} de la meta`}</span>
     </div>
   )

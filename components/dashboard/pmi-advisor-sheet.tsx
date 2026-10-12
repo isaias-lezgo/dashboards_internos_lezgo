@@ -4,7 +4,7 @@ import { Fragment } from "react"
 import { cn } from "@/lib/utils"
 import { semaphore, type PmiIndicator, type PmiSlice, type PmiWeek } from "@/lib/pmi"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
-import { INDICATOR_LABELS, fmtInt, toneClass } from "./pmi-ui"
+import { INDICATOR_LABELS, fmtInt, toneClass, zeroTone } from "./pmi-ui"
 
 const WEEKDAY = ["D", "L", "M", "M", "J", "V", "S"]
 const MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
@@ -85,14 +85,14 @@ export function PmiAdvisorSheet({
                             <td key={d} className={cn("px-0.5 py-0.5", i === 0 && "border-l border-border/60")}>
                               <button type="button" disabled={ids.length === 0}
                                 onClick={() => onCell(kind, ids, dayLabel(d))}
-                                className={cn("h-6 w-full min-w-7 rounded text-center", toneClass(semaphore(v, objDay)),
+                                className={cn("h-6 w-full min-w-7 rounded text-center", toneClass(zeroTone(v, semaphore(v, objDay))),
                                   ids.length > 0 ? "hover:ring-1 hover:ring-primary/40" : "cursor-default opacity-60")}>
                                 {v}
                               </button>
                             </td>
                           )
                         })}
-                        <td className={cn("px-1 py-0.5 text-center font-semibold", toneClass(semaphore(slice.byWeek[w.index][kind], objWeek)))}>
+                        <td className={cn("px-1 py-0.5 text-center font-semibold", toneClass(zeroTone(slice.byWeek[w.index][kind], semaphore(slice.byWeek[w.index][kind], objWeek))))}>
                           {fmtInt(slice.byWeek[w.index][kind])}
                         </td>
                       </Fragment>

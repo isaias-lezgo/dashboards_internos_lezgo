@@ -16,7 +16,7 @@ import {
   NonZeroTooltipContent, CHART_TICK, CHART_GRID_STROKE, STRUCTURAL_NAVY,
 } from "./dashboard-ui"
 import { ChartDrillDrawer, DRILL_CLOSED, type DrillState } from "./chart-drill-drawer"
-import { AdvisorAvatar, AvatarPaletteProvider, buildAvatarPalette, EstimatedNote, INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass } from "./pmi-ui"
+import { AdvisorAvatar, AvatarPaletteProvider, buildAvatarPalette, EstimatedNote, INDICATOR_LABELS, fmtInt, fmtMxn, fmtPct, toneClass, zeroText, zeroTone } from "./pmi-ui"
 import { PmiFunnel } from "./pmi-funnel"
 import { PmiRankingChart } from "./pmi-ranking-chart"
 import { PmiWeekTable, PmiPeriodTable } from "./pmi-week-table"
@@ -128,16 +128,16 @@ function AdvisorTable({ rows, active, tooltip, onSelect }: { rows: AdvisorRow[];
                     </td>
                     {COUNT_KEYS.map((k) => (
                       <td key={k} className="py-1 px-1 text-right">
-                        <span className={cn("inline-block rounded px-1.5 py-0.5", toneClass(semaphore(a.total[k], a.objective[k])))}>{fmtInt(a.total[k])}</span>
+                        <span className={cn("inline-block rounded px-1.5 py-0.5", toneClass(zeroTone(a.total[k], semaphore(a.total[k], a.objective[k]))))}>{fmtInt(a.total[k])}</span>
                       </td>
                     ))}
-                    <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoApartados)}</td>
-                    <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoCierres)}</td>
-                    <td className="py-1.5 px-2 text-right">{fmtMxn(a.total.montoGanados)}</td>
-                    <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.leadPerfil)}</td>
-                    <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.perfilCita)}</td>
-                    <td className="py-1.5 px-2 text-right">{fmtPct(a.conversions.citaApartado)}</td>
-                    <td className="py-1.5 pl-2 text-right">{fmtPct(a.conversions.apartadoCierre)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.total.montoApartados))}>{fmtMxn(a.total.montoApartados)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.total.montoCierres))}>{fmtMxn(a.total.montoCierres)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.total.montoGanados))}>{fmtMxn(a.total.montoGanados)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.conversions.leadPerfil))}>{fmtPct(a.conversions.leadPerfil)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.conversions.perfilCita))}>{fmtPct(a.conversions.perfilCita)}</td>
+                    <td className={cn("py-1.5 px-2 text-right", zeroText(a.conversions.citaApartado))}>{fmtPct(a.conversions.citaApartado)}</td>
+                    <td className={cn("py-1.5 pl-2 text-right", zeroText(a.conversions.apartadoCierre))}>{fmtPct(a.conversions.apartadoCierre)}</td>
                   </tr>
                 )
               })}
