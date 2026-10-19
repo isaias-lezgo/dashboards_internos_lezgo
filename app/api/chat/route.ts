@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS } from "@/lib/ai-tools";
 import { ASSISTANT_SYSTEM_PROMPT, WRITE_MODE_RULES } from "@/lib/ai-context";
+import { forbiddenTab, scopeHasTab } from "@/lib/session";
 
 // Server-side, one Anthropic turn per request. The client runs the agent
 // loop: when we return tool_use blocks, the client executes them locally
@@ -73,6 +74,8 @@ function withRollingCacheBreakpoint(
 }
 
 export async function POST(req: Request) {
+  // El asistente no existe para un alcance que oculta su pestaña (lib/scopes.ts).
+  if (!(await scopeHasTab("conversations"))) return forbiddenTab();
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: "ANTHROPIC_API_KEY no está configurada en el servidor" },

@@ -92,6 +92,9 @@ Required vars in `.env.local`:
 - `IW_ACCESS_PASSWORD` — the password of the **`iw`** scope. A session opened with it
   is limited to Condesa Cimatario. Same "unset = the scope does not exist" and `$`
   caveats as above.
+- `DESEMPENO_ACCESS_PASSWORD` — the password of the **`desempeno`** scope: every
+  project, but **only the Desempeño tab** (`tabs: ["pmi"]` in `lib/scopes.ts`). Same
+  "unset = the scope does not exist" and `$` caveats as above.
 - `DASHBOARD_CLIENTS` — JSON array of projects, one per GHL sub-account:
   `[{"id","name","locationId","ghlToken"}]`. Use `pnpm add-client` to extend it safely.
 - `DASHBOARD_AUTH_SECRET` — random string used to HMAC-sign both session cookies
@@ -296,8 +299,17 @@ Two cookies, two questions:
 proyectos** puede abrir la sesión. Cada alcance declara su `passwordEnv` y su lista de
 `projectIds` (`null` = todo el roster). Hoy son tres: `all`
 (`DASHBOARD_ACCESS_PASSWORD`, todos), `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
-Yconia y Plaza Bosques / Meseta) e `iw` (`IW_ACCESS_PASSWORD`, solo Condesa). El id del
-alcance es el payload firmado de `dash_access`.
+Yconia y Plaza Bosques / Meseta), `iw` (`IW_ACCESS_PASSWORD`, solo Condesa) y
+`desempeno` (`DESEMPENO_ACCESS_PASSWORD`, todos los proyectos pero **solo la pestaña
+Desempeño**). El id del alcance es el payload firmado de `dash_access`.
+
+**Pestañas por alcance.** `tabs` (opcional; ausente = todas) recorta las pestañas que
+`dashboard-app.tsx` dibuja — eso es cosmético. La barrera son `/api/chat`,
+`/api/ghl-write` y `/api/attachments/process`, que responden 403 vía `scopeHasTab()`
+(`lib/session.ts`) si el alcance no incluye `conversations`. El payload del sync sigue
+llegando completo (el PMI lo necesita), así que una pestaña oculta **no** es secreto de
+datos: oculta vistas, no registros. Un proyecto sin etapa de apartado muestra, en un
+alcance de solo Desempeño, un aviso en vez de la pestaña vacía.
 
 Agregar un alcance es: una entrada en `SCOPES`, su contraseña en un env var nuevo
 (local **y** en Vercel), sus aserciones en `scripts/verify-scopes.ts` y —si quiere link

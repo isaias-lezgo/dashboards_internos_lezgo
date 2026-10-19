@@ -5,7 +5,7 @@
 import { cookies } from "next/headers";
 import { ACCESS_COOKIE, PROJECT_COOKIE, verifyToken } from "./auth";
 import { getClientById, type ClientConfig } from "./clients";
-import { getScope, scopeAllows, type AccessScope } from "./scopes";
+import { getScope, scopeAllows, scopeAllowsTab, type AccessScope, type ScopeTab } from "./scopes";
 
 // The access scope of the current session: the set of projects the password they
 // logged in with unlocks. Re-verifies the cookie rather than trusting anything
@@ -46,6 +46,18 @@ export async function requireClient(): Promise<ClientConfig | null> {
   if (!scopeAllows(scope, client.id)) return null;
 
   return client;
+}
+
+// For the routes that serve ONE tab (the assistant's chat, its GHL writes and its
+// attachments): a session whose scope hides that tab must not reach them by calling
+// the API directly. Returns false for no session at all, too.
+export async function scopeHasTab(tab: ScopeTab): Promise<boolean> {
+  const scope = await currentScope();
+  return scope !== null && scopeAllowsTab(scope, tab);
+}
+
+export function forbiddenTab(): Response {
+  return Response.json({ error: "forbidden" }, { status: 403 });
 }
 
 export function unauthorized(): Response {

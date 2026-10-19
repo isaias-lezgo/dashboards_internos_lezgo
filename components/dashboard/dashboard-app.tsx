@@ -21,6 +21,7 @@ import { es } from "date-fns/locale"
 import { SalesDashboard } from "@/components/dashboard/sales-dashboard"
 import { PmiDashboard } from "@/components/dashboard/pmi-dashboard"
 import { projectHasMilestoneStages } from "@/lib/pmi-stages"
+import type { ScopeTab } from "@/lib/scopes"
 import { ConversationsChat } from "@/components/dashboard/conversations-chat"
 import { MetaConnectionPill } from "@/components/dashboard/meta-connection"
 import { useDashboardData } from "@/hooks/use-dashboard-data"
@@ -59,7 +60,8 @@ const LoadingScreen = dynamic(
   { ssr: false },
 )
 
-type DashboardTab = "marketing" | "sales" | "conversations" | "pmi"
+// The same ids lib/scopes.ts names, so a scope's `tabs` list maps 1:1 onto them.
+type DashboardTab = ScopeTab
 
 // Browser-tab title per view. The app is a single route, so the title is set
 // imperatively — `metadata` in layout.tsx can only give one static fallback.
@@ -85,10 +87,13 @@ function relativeAge(fetchedAt: string, _tick: number): string {
   return days === 1 ? "hace 1 día" : `hace ${days} días`
 }
 
-export function DashboardApp() {
+// `tabs` comes from the session's access scope (app/page.tsx): null = every tab.
+// Hiding a tab here is cosmetic — the assistant's routes check the scope themselves.
+export function DashboardApp({ tabs = null }: { tabs?: readonly DashboardTab[] | null }) {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const [activeTab, setActiveTab] = useState<DashboardTab>("marketing")
+  const tabAllowed = (t: DashboardTab) => tabs === null || tabs.includes(t)
+  const [activeTab, setActiveTab] = useState<DashboardTab>(tabs?.[0] ?? "marketing")
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -100,9 +105,13 @@ export function DashboardApp() {
   // (detección por presencia, como los segmentos Plaza/Agencia). Si el proyecto
   // cambia bajo los pies y deja de tenerla, se vuelve a Marketing.
   const hasPmi = projectHasMilestoneStages(data?.pipelines ?? [])
+  // Un alcance de solo Desempeño no tiene a dónde volver: se queda en la pestaña y
+  // explica por qué está vacía (pmiOnlyMissing, abajo).
+  const canFallBack = tabAllowed("marketing")
   useEffect(() => {
-    if (activeTab === "pmi" && !hasPmi) setActiveTab("marketing")
-  }, [activeTab, hasPmi])
+    if (activeTab === "pmi" && !hasPmi && canFallBack) setActiveTab("marketing")
+  }, [activeTab, hasPmi, canFallBack])
+  const pmiOnlyMissing = activeTab === "pmi" && !hasPmi && !canFallBack && Boolean(data)
 
   // The "Actualizado hace X" label is relative, so it has to re-render on its own;
   // without this it would still read "hace un momento" an hour later.
@@ -382,7 +391,7 @@ export function DashboardApp() {
               { id: "conversations" as const, label: "Asistente IA", icon: Sparkles },
               ...(hasPmi ? [{ id: "pmi" as const, label: "Desempeño", icon: Award }] : []),
             ]
-          ).map(({ id, label, icon: Icon }) => {
+          ).filter(({ id }) => tabAllowed(id)).map(({ id, label, icon: Icon }) => {
             const active = activeTab === id
             return (
               <button
@@ -462,7 +471,13 @@ export function DashboardApp() {
             filtersLabel={filtersLabel}
           />
         )}
-        {activeTab === "pmi" && (
+        {pmiOnlyMissing && (
+          <div className="mx-auto mt-16 max-w-md px-6 text-center text-sm text-muted-foreground">
+            Este proyecto no tiene una etapa de apartado en su pipeline, así que no hay
+            Desempeño que medir. Usa el botón de proyectos para elegir otro.
+          </div>
+        )}
+        {activeTab === "pmi" && hasPmi && (
           <PmiDashboard
             contacts={data?.contacts ?? []}
             opportunities={data?.opportunities ?? []}
@@ -478,23 +493,26 @@ export function DashboardApp() {
         {/* Kept permanently mounted (hidden when inactive) so the AI chat
             history survives switching to the Marketing/Ventas tabs. */}
         {/* The AI assistant always sees the full (unfiltered) dataset — the
-            date filter bar is hidden on this tab. */}
-        <div className={cn(activeTab !== "conversations" && "hidden")}>
-          <ConversationsChat
-            dataset={{
-              contacts: data?.contacts ?? [],
-              opportunities: data?.opportunities ?? [],
-              pautas: data?.pautas ?? [],
-              appointments: data?.appointments ?? [],
-              messages,
-              tasks: data?.tasks ?? [],
-              calls: data?.calls ?? [],
-              customFieldDefs: data?.customFieldDefs ?? [],
-              metaAds: data?.metaAds ?? null,
-            }}
-            locationId={data?.locationId}
-          />
-        </div>
+            date filter bar is hidden on this tab. Gated only by the session's
+            scope, which never changes while this page is open. */}
+        {tabAllowed("conversations") && (
+          <div className={cn(activeTab !== "conversations" && "hidden")}>
+            <ConversationsChat
+              dataset={{
+                contacts: data?.contacts ?? [],
+                opportunities: data?.opportunities ?? [],
+                pautas: data?.pautas ?? [],
+                appointments: data?.appointments ?? [],
+                messages,
+                tasks: data?.tasks ?? [],
+                calls: data?.calls ?? [],
+                customFieldDefs: data?.customFieldDefs ?? [],
+                metaAds: data?.metaAds ?? null,
+              }}
+              locationId={data?.locationId}
+            />
+          </div>
+        )}
       </div>
     </div>
     </>

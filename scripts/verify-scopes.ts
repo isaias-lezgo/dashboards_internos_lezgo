@@ -5,7 +5,7 @@
 // So the roster below mirrors production exactly, and every id a scope names is
 // checked against it.
 import assert from "node:assert/strict";
-import { SCOPES, DOMUS_SCOPE_ID, IW_SCOPE_ID, getScope, scopeAllows } from "../lib/scopes";
+import { SCOPES, DESEMPENO_SCOPE_ID, DOMUS_SCOPE_ID, IW_SCOPE_ID, getScope, scopeAllows, scopeAllowsTab } from "../lib/scopes";
 import { parseClients } from "../lib/clients";
 
 const ROSTER = JSON.stringify([
@@ -75,6 +75,25 @@ if (!all) throw new Error("the all scope must exist");
 assert.equal(all.projectIds, null, "the full scope must be null, not a hand-kept copy of the roster");
 for (const id of [...rosterIds, "un-proyecto-futuro"]) {
   assert.equal(scopeAllows(all, id), true, `all must allow ${id}`);
+}
+
+// --- the desempeno scope: every project, but ONLY the Desempeño tab. The assistant
+// routes trust scopeAllowsTab(), so a wrong list here would hand this password the
+// chat and its GHL writes.
+const desempeno = getScope(DESEMPENO_SCOPE_ID);
+if (!desempeno) throw new Error("the desempeno scope must exist");
+assert.equal(desempeno.projectIds, null, "desempeno must cover every project");
+assert.deepEqual([...(desempeno.tabs ?? [])], ["pmi"], "desempeno must be exactly the pmi tab");
+assert.equal(scopeAllowsTab(desempeno, "pmi"), true);
+for (const tab of ["marketing", "sales", "conversations"] as const) {
+  assert.equal(scopeAllowsTab(desempeno, tab), false, `desempeno must NOT see ${tab}`);
+}
+
+// --- every other scope sees every tab: tabs is opt-in, absent = unrestricted
+for (const scope of SCOPES.filter((s) => s.id !== DESEMPENO_SCOPE_ID)) {
+  for (const tab of ["marketing", "sales", "conversations", "pmi"] as const) {
+    assert.equal(scopeAllowsTab(scope, tab), true, `${scope.id} must see ${tab}`);
+  }
 }
 
 // --- unknown / missing ids resolve to nothing: getScope fails closed, which is what

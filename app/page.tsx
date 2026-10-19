@@ -19,7 +19,7 @@ export default async function Page() {
   // A project selected before the session narrowed (or by a different password on
   // this machine) is treated as no selection: the picker is the honest answer, and
   // requireClient() would 401 every fetch the dashboard made anyway.
-  if (scope && selected && scopeAllows(scope, selected.id)) return <DashboardApp />;
+  if (scope && selected && scopeAllows(scope, selected.id)) return <DashboardApp tabs={scope.tabs ?? null} />;
 
   // Only id and name cross into the browser bundle — never ghlToken or locationId,
   // and never a project outside this session's scope.

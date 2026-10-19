@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireClient, unauthorized } from "@/lib/session";
+import { forbiddenTab, requireClient, scopeHasTab, unauthorized } from "@/lib/session";
 import { withClient } from "@/lib/ghl-context";
 import {
   updateContactCustomFields,
@@ -29,6 +29,8 @@ interface Body {
 export async function POST(req: Request) {
   const client = await requireClient();
   if (!client) return unauthorized();
+  // Solo el asistente escribe en GHL; un alcance sin su pestaña no escribe.
+  if (!(await scopeHasTab("conversations"))) return forbiddenTab();
 
   let body: Body;
   try {

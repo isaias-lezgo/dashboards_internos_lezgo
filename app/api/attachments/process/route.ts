@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { extractText, getDocumentProxy } from "unpdf";
 import { buildTableSummary, type ProcessedAttachment } from "@/lib/attachments";
+import { forbiddenTab, scopeHasTab } from "@/lib/session";
 
 // Parses PDF (unpdf) and CSV/Excel (xlsx) uploads into normalized
 // ProcessedAttachment objects for the AI assistant. Touches no GHL — only the
@@ -54,6 +55,8 @@ function processTabular(filename: string, buf: Uint8Array): ProcessedAttachment[
 }
 
 export async function POST(req: Request) {
+  // El asistente no existe para un alcance que oculta su pestaña (lib/scopes.ts).
+  if (!(await scopeHasTab("conversations"))) return forbiddenTab();
   let form: FormData;
   try {
     form = await req.formData();
