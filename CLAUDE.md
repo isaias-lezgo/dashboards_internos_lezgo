@@ -93,7 +93,7 @@ Required vars in `.env.local`:
   is limited to Condesa Cimatario. Same "unset = the scope does not exist" and `$`
   caveats as above.
 - `DESEMPENO_ACCESS_PASSWORD` — the password of the **`desempeno`** scope: every
-  project, but **only the Desempeño tab** (`tabs: ["pmi"]` in `lib/scopes.ts`). Same
+  project except Lezgo Suite, and **only the Desempeño tab** (`tabs: ["pmi"]` in `lib/scopes.ts`). Same
   "unset = the scope does not exist" and `$` caveats as above.
 - `DASHBOARD_CLIENTS` — JSON array of projects, one per GHL sub-account:
   `[{"id","name","locationId","ghlToken"}]`. Use `pnpm add-client` to extend it safely.
@@ -300,8 +300,8 @@ proyectos** puede abrir la sesión. Cada alcance declara su `passwordEnv` y su l
 `projectIds` (`null` = todo el roster). Hoy son tres: `all`
 (`DASHBOARD_ACCESS_PASSWORD`, todos), `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
 Yconia y Plaza Bosques / Meseta), `iw` (`IW_ACCESS_PASSWORD`, solo Condesa) y
-`desempeno` (`DESEMPENO_ACCESS_PASSWORD`, todos los proyectos pero **solo la pestaña
-Desempeño**). El id del alcance es el payload firmado de `dash_access`.
+`desempeno` (`DESEMPENO_ACCESS_PASSWORD`, todos menos Lezgo Suite y **solo la pestaña
+Desempeño**; lista explícita, un proyecto nuevo hay que agregarlo). El id del alcance es el payload firmado de `dash_access`.
 
 **Pestañas por alcance.** `tabs` (opcional; ausente = todas) recorta las pestañas que
 `dashboard-app.tsx` dibuja — eso es cosmético. La barrera son `/api/chat`,

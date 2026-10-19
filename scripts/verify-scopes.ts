@@ -77,12 +77,17 @@ for (const id of [...rosterIds, "un-proyecto-futuro"]) {
   assert.equal(scopeAllows(all, id), true, `all must allow ${id}`);
 }
 
-// --- the desempeno scope: every project, but ONLY the Desempeño tab. The assistant
+// --- the desempeno scope: every project but Lezgo Suite, and ONLY the Desempeño tab. The assistant
 // routes trust scopeAllowsTab(), so a wrong list here would hand this password the
 // chat and its GHL writes.
 const desempeno = getScope(DESEMPENO_SCOPE_ID);
 if (!desempeno) throw new Error("the desempeno scope must exist");
-assert.equal(desempeno.projectIds, null, "desempeno must cover every project");
+assert.deepEqual(
+  [...(desempeno.projectIds ?? [])].sort(),
+  ["balvanera", "condesa", "grand-center", "plaza-bosques", "yconia"],
+  "desempeno must be every project except Lezgo Suite",
+);
+assert.equal(scopeAllows(desempeno, "lezgo-suite"), false, "desempeno must NOT allow lezgo-suite");
 assert.deepEqual([...(desempeno.tabs ?? [])], ["pmi"], "desempeno must be exactly the pmi tab");
 assert.equal(scopeAllowsTab(desempeno, "pmi"), true);
 for (const tab of ["marketing", "sales", "conversations"] as const) {

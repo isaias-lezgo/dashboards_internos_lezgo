@@ -51,14 +51,15 @@ export const SCOPES: readonly AccessScope[] = [
     projectIds: ["condesa"],
   },
   {
-    // Solo la pestaña Desempeño (el PMI de los asesores), en cualquier proyecto.
-    // Ocultar pestañas en la UI es cosmético; lo que impide usar el asistente (que
+    // Solo la pestaña Desempeño (el PMI de los asesores), en los proyectos
+    // inmobiliarios: Lezgo Suite queda fuera. Lista explícita, así que un proyecto
+    // nuevo NO entra solo — hay que agregarlo aquí. Ocultar pestañas en la UI es cosmético; lo que impide usar el asistente (que
     // escribe en el CRM) es scopeAllowsTab() en /api/chat, /api/ghl-write y
     // /api/attachments/process.
     id: "desempeno",
     label: "Desempeño Lezgo",
     passwordEnv: "DESEMPENO_ACCESS_PASSWORD",
-    projectIds: null,
+    projectIds: ["condesa", "plaza-bosques", "grand-center", "balvanera", "yconia"],
     tabs: ["pmi"],
   },
 ];
