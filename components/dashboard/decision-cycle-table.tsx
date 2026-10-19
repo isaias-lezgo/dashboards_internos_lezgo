@@ -2,7 +2,9 @@
 
 import { useMemo, type ReactNode } from "react"
 import type { Opportunity, Contact, Appointment } from "@/lib/types"
+import { milestoneDateField } from "@/lib/pmi-stages"
 import { isWonOpp } from "@/lib/opportunity-status"
+import { localDay } from "@/lib/meta-attribution"
 import { platformLabel } from "@/lib/source-platform"
 import {
   BRAND_AMBER,
@@ -24,7 +26,8 @@ export interface DecisionCycleRow {
   asesor: string
   llego: string          // ISO — opportunity creation
   visito: string | null  // ISO — contact's first appointment, or null
-  aparto: string         // ISO — closedAt (fallback updatedAt)
+  aparto: string         // YYYY-MM-DD local — campo "Fecha de apartado" de la oportunidad
+  estimated: boolean     // sin el campo: ganada, fechada con closedAt/updatedAt
   dias: number
   origen: string
 }
@@ -33,16 +36,21 @@ export interface DecisionCycleStats {
   promedio: number
   fastest: DecisionCycleRow | null
   longest: DecisionCycleRow | null
+  estimatedCount: number
 }
 
 /**
  * Pure builder shared by the panel and the PDF report. Walks the (already
- * date-filtered) opportunities, keeps the won ones, and measures the days from
- * opportunity creation (Llegó) to close (Apartó = closedAt, falling back to
- * updatedAt so stage-driven wins that carry no closedAt still appear). Contact
- * names and the "Visitó" date are resolved against the full lookup sets. A won
- * opportunity is excluded only when no Apartó date resolves or when it lands
- * before Llegó (inconsistent data). Rows come back ascending by días.
+ * date-filtered) opportunities. Apartó is the "Fecha de apartado" custom field —
+ * the same one the PMI reads (`milestoneDateField`). While the consultoría fills
+ * that field in, a WON opportunity without it still appears, dated with
+ * `closedAt` (fallback `updatedAt`) and flagged `estimated`: updatedAt moves with
+ * any edit, so the UI and the PDF must say the date is a guess. An opportunity
+ * that is neither won nor carries the field does not appear. Días are
+ * counted between LOCAL calendar days: creation (Llegó) → Fecha de apartado.
+ * Contact names and the "Visitó" date are resolved against the full lookup sets.
+ * An apartado dated before Llegó is excluded as inconsistent. Rows come back
+ * ascending by días.
  */
 export function buildDecisionCycle(
   opportunities: Opportunity[],
@@ -65,15 +73,17 @@ export function buildDecisionCycle(
   const rows: DecisionCycleRow[] = []
   let excludedCount = 0
   for (const o of opportunities) {
-    if (!isWonOpp(o)) continue
-    const llegoMs = new Date(o.createdAt).getTime()
-    const apartoIso = o.closedAt || o.updatedAt
-    const apartoMs = apartoIso ? new Date(apartoIso).getTime() : NaN
+    const field = milestoneDateField(o, "apartado")
+    const fallbackIso = field ? null : isWonOpp(o) ? o.closedAt || o.updatedAt : null
+    if (!field && !fallbackIso) continue
+    const aparto = field ?? localDay(fallbackIso as string)
+    const llegoMs = o.createdAt ? dayMs(localDay(o.createdAt)) : NaN
+    const apartoMs = dayMs(aparto)
     if (isNaN(llegoMs) || isNaN(apartoMs) || apartoMs < llegoMs) {
       excludedCount++
       continue
     }
-    const dias = Math.max(0, Math.round((apartoMs - llegoMs) / MS_PER_DAY))
+    const dias = Math.round((apartoMs - llegoMs) / MS_PER_DAY)
     const visitoMs = firstAppt.get(o.contactId)
     rows.push({
       opp: o,
@@ -81,26 +91,40 @@ export function buildDecisionCycle(
       asesor: o.assignedTo || "Sin asesor",
       llego: o.createdAt,
       visito: visitoMs !== undefined ? new Date(visitoMs).toISOString() : null,
-      aparto: apartoIso as string,
+      aparto,
+      estimated: !field,
       dias,
       origen: platformLabel(o),
     })
   }
   rows.sort((a, b) => a.dias - b.dias)
 
-  const stats: DecisionCycleStats = { promedio: 0, fastest: null, longest: null }
+  const stats: DecisionCycleStats = { promedio: 0, fastest: null, longest: null, estimatedCount: 0 }
   if (rows.length > 0) {
     const sum = rows.reduce((s, r) => s + r.dias, 0)
     stats.promedio = Math.round(sum / rows.length)
+    stats.estimatedCount = rows.filter((r) => r.estimated).length
     stats.fastest = rows[0]                   // ascending → first is fastest
     stats.longest = rows[rows.length - 1]     // … last is longest
   }
   return { rows, stats, excludedCount }
 }
 
-function fmtDate(iso: string | null): string {
+// A bare `YYYY-MM-DD` as UTC midnight, only for day arithmetic.
+function dayMs(day: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN
+}
+
+/**
+ * "6 oct". A bare `YYYY-MM-DD` (Apartó) is built as a LOCAL date — `new Date()`
+ * would read it as UTC midnight and print the day before in Mexico. Shared with
+ * the PDF section.
+ */
+export function fmtCycleDate(iso: string | null): string {
   if (!iso) return "—"
-  const d = new Date(iso)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso)
   if (isNaN(d.getTime())) return "—"
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" })
 }
@@ -168,7 +192,7 @@ export function DecisionCycleTable({
       <ChartCardHeader title="Ciclo de decisión — días Lead→Apartado" total={rows.length} />
       <ChartCardContent>
         {rows.length === 0 ? (
-          <ChartEmpty message="Sin oportunidades ganadas en el periodo" height={192} />
+          <ChartEmpty message="Sin oportunidades apartadas en el periodo" height={192} />
         ) : (
           <>
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -180,7 +204,7 @@ export function DecisionCycleTable({
                 color={BRAND_AMBER}
                 onClick={() =>
                   onOpenOpps(
-                    "Ciclo de decisión — oportunidades ganadas",
+                    "Ciclo de decisión — oportunidades apartadas",
                     rows.map((r) => r.opp),
                     `Promedio ${diasLabel(stats.promedio)}`,
                   )
@@ -231,9 +255,19 @@ export function DecisionCycleTable({
                     >
                       <td className="px-3 py-2 font-medium text-foreground">{r.cliente}</td>
                       <td className="px-3 py-2 text-muted-foreground">{r.asesor}</td>
-                      <td className="px-3 py-2 tabular-nums text-foreground">{fmtDate(r.llego)}</td>
-                      <td className="px-3 py-2 tabular-nums text-muted-foreground">{fmtDate(r.visito)}</td>
-                      <td className="px-3 py-2 tabular-nums text-foreground">{fmtDate(r.aparto)}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{fmtCycleDate(r.llego)}</td>
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">{fmtCycleDate(r.visito)}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">
+                        {fmtCycleDate(r.aparto)}
+                        {r.estimated && (
+                          <span
+                            className="ml-1.5 rounded bg-muted px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            title="Sin Fecha de apartado en la oportunidad: fecha estimada con la última actualización de la oportunidad ganada"
+                          >
+                            est.
+                          </span>
+                        )}
+                      </td>
                       <td
                         className="px-3 py-2 text-center font-semibold tabular-nums text-foreground"
                         style={{ background: BRAND_AMBER + "12" }}
@@ -247,7 +281,10 @@ export function DecisionCycleTable({
               </table>
             </div>
             <ChartHint>
-              Solo oportunidades ganadas · Llegó = creación de la oportunidad · Apartó = cierre (ganado) ·
+              Llegó = creación de la oportunidad · Apartó = campo "Fecha de apartado" de la oportunidad
+              {stats.estimatedCount > 0 &&
+                ` · ${stats.estimatedCount} sin ese campo (est.): ganadas fechadas con su última actualización, pueden no ser exactas`}{" "}
+              ·
               Ordenado del cierre más rápido al más largo · Haz clic en una fila para ver la oportunidad
             </ChartHint>
           </>

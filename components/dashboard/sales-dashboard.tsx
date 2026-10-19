@@ -50,7 +50,7 @@ import {
   type ApptDrillState,
 } from "./appointment-drill-drawer"
 import { ExportReportButton } from "./export-report-button"
-import { DecisionCycleTable, buildDecisionCycle } from "./decision-cycle-table"
+import { DecisionCycleTable, buildDecisionCycle, fmtCycleDate } from "./decision-cycle-table"
 import type { ReportInput, ReportSection } from "@/lib/report"
 
 interface SalesDashboardProps {
@@ -610,14 +610,16 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
         const MAX_ROWS = 25
         const shown = cycle.rows.slice(0, MAX_ROWS)
         const truncated = cycle.rows.length > shown.length
-        const fmt = (iso: string | null) =>
-          iso ? new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short" }) : "—"
+        const fmt = fmtCycleDate
         sections.push({
           id: "ciclo",
-          title: "Ciclo de decisión (oportunidades ganadas)",
+          title: "Ciclo de decisión (oportunidades apartadas)",
           explanation:
-            `Cuántos días transcurren desde que se crea la oportunidad hasta que se gana/aparta, por cada oportunidad ganada del periodo. Promedio general: ${cycle.stats.promedio} días · más rápido: ${cycle.stats.fastest.dias} (${cycle.stats.fastest.cliente}) · más largo: ${cycle.stats.longest.dias} (${cycle.stats.longest.cliente}).` +
-            (truncated ? ` Se listan las ${shown.length} de cierre más rápido de ${cycle.rows.length} ganadas.` : ""),
+            `Cuántos días transcurren desde que se crea la oportunidad hasta su "Fecha de apartado" (campo de la oportunidad), por cada oportunidad apartada del periodo. Promedio general: ${cycle.stats.promedio} días · más rápido: ${cycle.stats.fastest.dias} (${cycle.stats.fastest.cliente}) · más largo: ${cycle.stats.longest.dias} (${cycle.stats.longest.cliente}).` +
+            (cycle.stats.estimatedCount > 0
+              ? ` ${cycle.stats.estimatedCount} de ${cycle.rows.length} aún no tienen "Fecha de apartado": son oportunidades ganadas fechadas con su última actualización, marcadas "(est.)", y sus días pueden no ser exactos.`
+              : "") +
+            (truncated ? ` Se listan las ${shown.length} de cierre más rápido de ${cycle.rows.length} apartadas.` : ""),
           blocks: [{
             t: "table",
             headers: ["Cliente", "Asesor", "Llegó", "Visitó", "Apartó", "Días", "Origen"],
@@ -626,7 +628,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
               r.asesor,
               fmt(r.llego),
               fmt(r.visito),
-              fmt(r.aparto),
+              r.estimated ? `${fmt(r.aparto)} (est.)` : fmt(r.aparto),
               String(r.dias),
               r.origen,
             ]),
