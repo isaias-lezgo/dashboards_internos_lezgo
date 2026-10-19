@@ -94,8 +94,26 @@ for (const tab of ["marketing", "sales", "conversations"] as const) {
   assert.equal(scopeAllowsTab(desempeno, tab), false, `desempeno must NOT see ${tab}`);
 }
 
+// --- the advisor scopes: their own project(s), only Desempeño. A slip here lets one
+// development's sales team see another's — the whole reason these exist.
+const ADVISORS: Record<string, string[]> = {
+  "asesores-plaza": ["grand-center", "plaza-bosques"],
+  "asesores-condesa": ["condesa"],
+  "asesores-balvanera": ["balvanera"],
+  "asesores-yconia": ["yconia"],
+};
+for (const [id, projects] of Object.entries(ADVISORS)) {
+  const scope = getScope(id);
+  if (!scope) throw new Error(`the ${id} scope must exist`);
+  assert.deepEqual([...(scope.projectIds ?? [])].sort(), projects, `${id} must be exactly ${projects.join(", ")}`);
+  for (const other of rosterIds) {
+    assert.equal(scopeAllows(scope, other), projects.includes(other), `${id} vs ${other}`);
+  }
+  assert.deepEqual([...(scope.tabs ?? [])], ["pmi"], `${id} must be exactly the pmi tab`);
+}
+
 // --- every other scope sees every tab: tabs is opt-in, absent = unrestricted
-for (const scope of SCOPES.filter((s) => s.id !== DESEMPENO_SCOPE_ID)) {
+for (const scope of SCOPES.filter((s) => s.id !== DESEMPENO_SCOPE_ID && !(s.id in ADVISORS))) {
   for (const tab of ["marketing", "sales", "conversations", "pmi"] as const) {
     assert.equal(scopeAllowsTab(scope, tab), true, `${scope.id} must see ${tab}`);
   }

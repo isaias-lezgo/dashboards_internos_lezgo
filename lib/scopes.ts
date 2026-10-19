@@ -62,6 +62,37 @@ export const SCOPES: readonly AccessScope[] = [
     projectIds: ["condesa", "plaza-bosques", "grand-center", "balvanera", "yconia"],
     tabs: ["pmi"],
   },
+  // Accesos de asesores: un proyecto (o un par) y solo Desempeño, para que el equipo
+  // de un desarrollo no vea a los demás. Contraseñas aleatorias A PROPÓSITO: con un
+  // patrón, un asesor adivinaría la del proyecto vecino.
+  {
+    id: "asesores-plaza",
+    label: "Desempeño Plaza Bosques / Meseta y Grand Center",
+    passwordEnv: "ASESORES_PLAZA_ACCESS_PASSWORD",
+    projectIds: ["plaza-bosques", "grand-center"],
+    tabs: ["pmi"],
+  },
+  {
+    id: "asesores-condesa",
+    label: "Desempeño Condesa Cimatario",
+    passwordEnv: "ASESORES_CONDESA_ACCESS_PASSWORD",
+    projectIds: ["condesa"],
+    tabs: ["pmi"],
+  },
+  {
+    id: "asesores-balvanera",
+    label: "Desempeño Balvanera",
+    passwordEnv: "ASESORES_BALVANERA_ACCESS_PASSWORD",
+    projectIds: ["balvanera"],
+    tabs: ["pmi"],
+  },
+  {
+    id: "asesores-yconia",
+    label: "Desempeño Yconia",
+    passwordEnv: "ASESORES_YCONIA_ACCESS_PASSWORD",
+    projectIds: ["yconia"],
+    tabs: ["pmi"],
+  },
 ];
 
 export const DOMUS_SCOPE_ID = "domus";
