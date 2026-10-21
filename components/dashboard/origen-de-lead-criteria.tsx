@@ -28,7 +28,7 @@ const FALLBACK_RULES: { label: string; rule: string }[] = [
 ]
 
 const FUENTE_RULES: { label: string; rule: string }[] = [
-  { label: "Publicidad en Meta/TikTok",  rule: "fuente en meta/facebook/instagram/tiktok o medio en paid_social/cpc/cpm" },
+  { label: "Publicidad en Meta/TikTok",  rule: "fuente en meta/facebook/instagram/tiktok, medio en paid_social/cpc/cpm, o con ID de anuncio u objeto Pauta (incluye anuncios a WhatsApp)" },
   { label: "Publicidad en Google",       rule: 'fuente/medio en google/bing ads, o campo "Tipo de pauta = Google Ads" (incluye leads del sitio web vía Google Ads)' },
   { label: "Redes Sociales (Orgánico)",  rule: "fuente orgánica en redes sociales sin medio de pago" },
   { label: "Manual (CRM)", rule: "fuente vacía o ingresada manualmente desde el CRM" },

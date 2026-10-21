@@ -26,6 +26,7 @@ import {
   isDePauta as isDePautaOpp,
   resolveCampaignName,
   buildPautaNameByContact,
+  type HasKey,
   PAID_SOCIAL_SOURCES,
   PAID_SOCIAL_MEDIUMS,
   PAID_SEARCH_SOURCES,
@@ -40,7 +41,7 @@ import type { ReportInput, ReportSection } from "@/lib/report"
 import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
 import { PaidPerformanceTable, usePaidPerformance, buildPaidReportSection } from "./paid-performance-table"
 import { PaidStageChart, buildPaidStageReportSection, type PaidStageGroupBy } from "./paid-stage-chart"
-import { buildAttributionContext, buildMetaIndex } from "@/lib/meta-attribution"
+import { buildAttributionContext, buildMetaIndex, oppAdId } from "@/lib/meta-attribution"
 import { EMPTY_META, urlPlatform, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
 import type { ResolvedDateRange } from "@/lib/date-range"
@@ -205,7 +206,7 @@ function isCrmUi(src: string, med: string, attrMed: string): boolean {
   )
 }
 
-function sourceCategory(opp: Opportunity): string {
+function sourceCategory(opp: Opportunity, pautaContactIds: HasKey): string {
   const src = (opp.source ?? "").toLowerCase()
   const med = (opp.adType ?? "").toLowerCase()
   const attrMed = (opp.attributionMedium ?? "").toLowerCase()
@@ -218,6 +219,12 @@ function sourceCategory(opp: Opportunity): string {
   if (hasGoogleAdsSignal(originSignal)) return "Paid Search"
   if (PAID_SOCIAL_SOURCES.some((s) => src.includes(s)) || PAID_SOCIAL_MEDIUMS.some((m) => med.includes(m))) return "Paid Social"
   if (PAID_SEARCH_SOURCES.some((s) => src.includes(s)) || PAID_SEARCH_MEDIUMS.some((m) => med.includes(m))) return "Paid Search"
+  // A click-to-WhatsApp ad arrives as source "direct" + adType "Social media" +
+  // medium "whatsapp" — the same shape as an organic WhatsApp click, so the
+  // source/medium rules above can't tell them apart. What can: the Meta ad id GHL
+  // captured, or the Pauta record the Make scenario created. Without this, every
+  // CTWA lead in Condesa landed in "Redes Sociales (Orgánico)".
+  if (oppAdId(opp) || pautaContactIds.has(opp.contactId)) return "Paid Social"
   if (SOCIAL_ORGANIC_SOURCES.some((s) => src.includes(s)) || med.includes("social")) return "Social Media"
   // Organic website origin — checked before the empty-source CRM-UI catch below,
   // since these leads also have a blank source/medium.
@@ -663,7 +670,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     const platMap = new Map<string, Map<string, number>>()
     for (const o of opportunities) {
       const plat = platformLabel(o)
-      const cat = sourceCategory(o)
+      const cat = sourceCategory(o, pautaContactIds)
       if (!platMap.has(plat)) platMap.set(plat, new Map())
       const catCounts = platMap.get(plat)!
       catCounts.set(cat, (catCounts.get(cat) ?? 0) + 1)
@@ -677,7 +684,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         return { platform, total, color: PLATFORM_COLORS[platform] ?? "#6b7280", breakdown }
       })
       .sort((a, b) => b.total - a.total)
-  }, [opportunities])
+  }, [opportunities, pautaContactIds])
 
   // Built from the UNFILTERED contacts: a pauta inside the date range can belong
   // to a contact created before it. Looking that contact up in the date-filtered
@@ -1001,7 +1008,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     for (const o of opportunities) {
       if (!isWonOpp(o)) continue
       const platform = platformLabel(o)
-      const cat = sourceCategory(o)
+      const cat = sourceCategory(o, pautaContactIds)
       if (!byPlatform.has(platform)) byPlatform.set(platform, new Map())
       const m = byPlatform.get(platform)!
       m.set(cat, (m.get(cat) ?? 0) + 1)
@@ -1012,7 +1019,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
       for (const cat of SOURCE_CATEGORY_ORDER) row[cat] = m.get(cat) ?? 0
       return row
     })
-  }, [opportunities])
+  }, [opportunities, pautaContactIds])
 
   const wonTotal = useMemo(
     () => opportunities.reduce((s, o) => (isWonOpp(o) ? s + 1 : s), 0),
@@ -1386,7 +1393,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                                   openDrill(
                                     `${entry.platform} · ${seg.category}`,
                                     opportunities.filter(
-                                      (o) => platformLabel(o) === entry.platform && sourceCategory(o) === seg.category
+                                      (o) => platformLabel(o) === entry.platform && sourceCategory(o, pautaContactIds) === seg.category
                                     )
                                   )
                                 }}
@@ -1406,7 +1413,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                                     openDrill(
                                       `${entry.platform} · ${catLabel(seg.category)}`,
                                       opportunities.filter(
-                                        (o) => platformLabel(o) === entry.platform && sourceCategory(o) === seg.category
+                                        (o) => platformLabel(o) === entry.platform && sourceCategory(o, pautaContactIds) === seg.category
                                       )
                                     )
                                   }}
@@ -1845,7 +1852,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
                           if (!count) return
                           openDrill(
                             `Ganadas: ${data.platform} · ${catLabel(key)}`,
-                            opportunities.filter((o) => isWonOpp(o) && platformLabel(o) === data.platform && sourceCategory(o) === key)
+                            opportunities.filter((o) => isWonOpp(o) && platformLabel(o) === data.platform && sourceCategory(o, pautaContactIds) === key)
                           )
                         }}
                       />
