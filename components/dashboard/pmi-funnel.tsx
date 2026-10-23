@@ -1,9 +1,10 @@
 "use client"
 
 import type { CSSProperties } from "react"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PMI_CONVERSION_TARGETS, semaphore, type PmiConversions, type PmiCounts, type PmiIndicator, type PmiObjectives } from "@/lib/pmi"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { DashboardCard, ChartCardHeader, ChartCardContent, ScopePill } from "./dashboard-ui"
 import { AdvisorAvatar, INDICATOR_LABELS, conversionTone, fmtInt, fmtMxn, fmtPct, toneClass, zeroText } from "./pmi-ui"
 
@@ -30,6 +31,17 @@ const CONVERSION_SHORT: Record<keyof PmiConversions, string> = {
   perfilCita: "Perfilamientos a citas",
   citaApartado: "Citas a apartados",
   apartadoCierre: "Apartados a proceso de cierre",
+}
+
+// Cómo se cuenta cada escalón, en palabras para el equipo. Es el espejo de
+// collectEvents (lib/pmi.ts): si cambia una regla allá, cambia aquí.
+const STAGE_HELP: Record<PmiIndicator, string> = {
+  leads: "Todo contacto nuevo, por su fecha de creación (hora de México), asignado al asesor del contacto. «De pauta» son los que vienen de anuncios: ligados a un registro de Pauta o con una oportunidad de tráfico pagado.",
+  perfilamientos: "Oportunidades que llegaron por primera vez a «Cliente Calificado» o a cualquier etapa posterior (cita, visita, cotización, apartado… hasta entregado). Cuenta en la fecha en que cruzó ese hito, aunque después retroceda. Si ya estaba ahí cuando el panel empezó a registrarlo, la fecha es estimada.",
+  citas: "La PRIMERA cita marcada como «Asistió» de cada lead, en la fecha de esa cita. Las visitas siguientes del mismo lead no vuelven a contar, y si su primera cita cayó antes del período, no cuenta en éste.",
+  apartados: "Oportunidades cuya «Fecha de apartado» cae en el período. Sin ese campo lleno no cuenta, aunque esté en la etapa Apartado. El monto es el valor de la oportunidad.",
+  cierres: "Oportunidades cuya «Fecha de cierre» cae en el período, sin importar su etapa. Sin ese campo lleno no cuenta. El monto es el valor de la oportunidad.",
+  ganados: "Las de «En proceso de cierre» que además ya están en Negocio Ganado o Entregado, por la misma «Fecha de cierre». No lleva objetivo.",
 }
 
 // El relleno del escalón usa el semáforo como fondo tenue; el texto se queda en
@@ -79,6 +91,7 @@ export function PmiFunnel({
       />
       <ChartCardContent className="flex flex-1">
         {/* Los escalones se reparten la altura de la tarjeta, que la fija la columna vecina. */}
+        <TooltipProvider delayDuration={100}>
         <ol className="flex w-full flex-1 flex-col items-center justify-around gap-1">
           {STAGES.map(({ kind, width, conversion }) => {
             const value = t[kind]
@@ -113,7 +126,25 @@ export function PmiFunnel({
                   <span aria-hidden className={cn("absolute inset-y-0 left-0", fillClass(tone))} style={{ width: `${fillPct}%` }} />
                   <span className="relative flex items-center gap-3 px-3 py-2.5">
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{INDICATOR_LABELS[kind]}</span>
+                      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+                        {INDICATOR_LABELS[kind]}
+                        {/* Un span y no un botón: va dentro del botón del escalón. El
+                            clic se detiene aquí para que leer la ayuda no abra el drill. */}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              aria-label={`Cómo se calcula: ${STAGE_HELP[kind]}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex cursor-help text-muted-foreground/70 hover:text-foreground"
+                            >
+                              <Info className="h-3 w-3" aria-hidden />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[18rem] text-xs normal-case leading-relaxed tracking-normal">
+                            {STAGE_HELP[kind]}
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
                       <span className="truncate text-[11px] text-muted-foreground">
                         {kind === "leads" && `${fmtInt(t.leadsPauta)} de pauta · `}
                         {m !== null && `${fmtMxn(m)} · `}
@@ -138,6 +169,7 @@ export function PmiFunnel({
             )
           })}
         </ol>
+        </TooltipProvider>
       </ChartCardContent>
     </DashboardCard>
   )
