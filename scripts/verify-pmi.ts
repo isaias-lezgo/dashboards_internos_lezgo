@@ -18,6 +18,7 @@ import {
   PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth, buildPmiYear,
   buildPmiQuarter, quarterOf, quarterMonths, quarterLabel,
 } from "../lib/pmi";
+import { filterPmiInputByPlaza, pmiPlazaOptions, plazaShortLabel } from "../lib/pmi-segment";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -527,6 +528,40 @@ function ganadosMain() {
   assert.equal(semaphore(c.ganados, PMI_OBJECTIVES.ganados), null);
 }
 
+// El corte por plaza: "Ambas" cuenta en las dos, "No identificado" en ninguna,
+// la oportunidad manda sobre su contacto y la cita sigue a su contacto.
+function plazaMain() {
+  const F = "Plaza Bosques o Plaza Meseta";
+  const cB = contact({ id: "cB", customFieldsResolved: { [F]: "Plaza Bosques" } });
+  const cM = contact({ id: "cM", customFieldsResolved: { [F]: "Plaza Meseta" } });
+  const cA = contact({ id: "cA", customFieldsResolved: { [F]: "Ambas" } });
+  const cX = contact({ id: "cX" });
+  const input = {
+    contacts: [cB, cM, cA, cX],
+    opportunities: [
+      opp({ id: "oB", contactId: "cB" }),
+      // El campo de la oportunidad gana al del contacto.
+      opp({ id: "oMenB", contactId: "cB", customFieldsResolved: { "Bosques o Meseta para Dash": "Plaza Meseta" } }),
+      opp({ id: "oA", contactId: "cA" }),
+      opp({ id: "oX", contactId: "cX" }),
+    ],
+    appointments: [appt({ id: "aB", contactId: "cB" }), appt({ id: "aM", contactId: "cM" }), appt({ id: "aX", contactId: "cX" })],
+    pautas: [],
+  };
+  assert.deepEqual(pmiPlazaOptions(input), ["Plaza Bosques", "Plaza Meseta"]);
+  assert.deepEqual(pmiPlazaOptions({ contacts: [cX], opportunities: [] }), [], "sin el campo no hay selector");
+  assert.equal(plazaShortLabel("Plaza Bosques"), "Bosques");
+
+  const b = filterPmiInputByPlaza(input, "Plaza Bosques");
+  assert.deepEqual(b.contacts.map((c) => c.id), ["cB", "cA"]);
+  assert.deepEqual(b.opportunities.map((o) => o.id), ["oB", "oA"]);
+  assert.deepEqual(b.appointments.map((a) => a.id), ["aB"]);
+  const m = filterPmiInputByPlaza(input, "Plaza Meseta");
+  assert.deepEqual(m.contacts.map((c) => c.id), ["cM", "cA"]);
+  assert.deepEqual(m.opportunities.map((o) => o.id), ["oMenB", "oA"]);
+  assert.deepEqual(m.appointments.map((a) => a.id), ["aM"]);
+}
+
 async function main() {
   stagesMain();
   console.log("✅ verify:pmi — etapas");
@@ -542,6 +577,8 @@ async function main() {
   console.log("✅ verify:pmi — año");
   quarterMain();
   console.log("✅ verify:pmi — trimestre");
+  plazaMain();
+  console.log("✅ verify:pmi — corte por plaza");
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

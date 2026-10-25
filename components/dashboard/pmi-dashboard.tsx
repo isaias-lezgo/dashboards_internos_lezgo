@@ -24,6 +24,7 @@ import { PmiAdvisorSheet } from "./pmi-advisor-sheet"
 import { PmiYearView } from "./pmi-year-table"
 import { ExportReportButton } from "./export-report-button"
 import { buildPmiReport } from "@/lib/pmi-report"
+import { filterPmiInputByPlaza, pmiPlazaOptions, plazaShortLabel } from "@/lib/pmi-segment"
 import type { ReportInput } from "@/lib/report"
 
 interface PmiDashboardProps {
@@ -156,10 +157,21 @@ export function PmiDashboard(props: PmiDashboardProps) {
   const [advisor, setAdvisor] = useState<string>(TEAM)
   const [drill, setDrill] = useState<DrillState>(DRILL_CLOSED)
 
-  const input = useMemo(
+  // "" = todas las plazas. Solo Plaza Bosques / Meseta trae el campo; en los
+  // demás proyectos no hay opciones y el selector no se dibuja.
+  const [plaza, setPlaza] = useState("")
+  const fullInput = useMemo(
     () => ({ contacts, opportunities, appointments, pautas }),
     [contacts, opportunities, appointments, pautas],
   )
+  const plazaOptions = useMemo(() => pmiPlazaOptions(fullInput), [fullInput])
+  const input = useMemo(
+    () => (plaza ? filterPmiInputByPlaza(fullInput, plaza) : fullInput),
+    [fullInput, plaza],
+  )
+  // El PDF lo declara en su encabezado: un reporte de una sola plaza que no lo
+  // dice se leería como el del proyecto entero.
+  const reportLocation = plaza ? `${props.locationName ?? ""} · ${plaza}`.replace(/^ · /, "") : props.locationName
   const pmi = useMemo(() => buildPmiMonth(input, month), [input, month])
   const year = Number(month.slice(0, 4))
   const pmiYear = useMemo(() => (view === "year" ? buildPmiYear(input, year) : null), [input, year, view])
@@ -204,15 +216,15 @@ export function PmiDashboard(props: PmiDashboardProps) {
   )
 
   const buildReport = useCallback((): ReportInput => {
-    if (view === "year") return buildPmiReport({ kind: "year", year: pmiYear ?? buildPmiYear(input, year) }, props.locationName)
+    if (view === "year") return buildPmiReport({ kind: "year", year: pmiYear ?? buildPmiYear(input, year) }, reportLocation)
     if (view === "quarter") {
       const quarter = pmiQuarter ?? buildPmiQuarter(input, qYear, q)
-      if (selectedQ) return buildPmiReport({ kind: "quarter-advisor", quarter, advisor: selectedQ }, props.locationName)
-      return buildPmiReport({ kind: "quarter-team", quarter }, props.locationName)
+      if (selectedQ) return buildPmiReport({ kind: "quarter-advisor", quarter, advisor: selectedQ }, reportLocation)
+      return buildPmiReport({ kind: "quarter-team", quarter }, reportLocation)
     }
-    if (selected) return buildPmiReport({ kind: "month-advisor", pmi, advisor: selected }, props.locationName)
-    return buildPmiReport({ kind: "month-team", pmi }, props.locationName)
-  }, [view, pmiYear, pmiQuarter, input, year, qYear, q, selected, selectedQ, pmi, props.locationName])
+    if (selected) return buildPmiReport({ kind: "month-advisor", pmi, advisor: selected }, reportLocation)
+    return buildPmiReport({ kind: "month-team", pmi }, reportLocation)
+  }, [view, pmiYear, pmiQuarter, input, year, qYear, q, selected, selectedQ, pmi, reportLocation])
 
   const periodTitle = view === "year" ? String(year) : view === "quarter" ? quarterLabel(qYear, q) : monthLabel(month)
   const periodShift = view === "year" ? 12 : view === "quarter" ? 3 : 1
@@ -271,6 +283,20 @@ export function PmiDashboard(props: PmiDashboardProps) {
                 {name === TEAM ? "Equipo" : <span className="flex items-center gap-1.5"><AdvisorAvatar name={name} className="h-4 w-4 text-[8px]" />{name}</span>}
               </button>
             ))}
+          </div>
+        )}
+        {plazaOptions.length > 0 && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">Plaza</span>
+            <div className="flex rounded-lg border border-border p-0.5">
+              {["", ...plazaOptions].map((v) => (
+                <button key={v || "todas"} type="button" onClick={() => setPlaza(v)}
+                  title={v ? `Solo leads de ${v}. Los marcados «Ambas» cuentan en las dos plazas.` : "Todas las plazas"}
+                  className={cn("rounded-md px-3 py-1 font-medium transition-colors", plaza === v ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                  {v ? plazaShortLabel(v) : "Todas"}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="ml-auto">
