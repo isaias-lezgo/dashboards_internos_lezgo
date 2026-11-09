@@ -63,6 +63,22 @@ export function isDePauta(opp: Opportunity, pautaContacts: HasKey): boolean {
   return (!!opp.contactId && pautaContacts.has(opp.contactId)) || isPaidTraffic(opp)
 }
 
+// "Es de pauta" a nivel CONTACTO, para lo que cuelga del contacto y no de una
+// oportunidad — las citas. Es isDePauta subido un nivel: el contacto tiene
+// registro Pauta, o ALGUNA de sus oportunidades trae tráfico pagado. Pásale el
+// historial COMPLETO de oportunidades: una cita en la ventana cuenta aunque la
+// oportunidad pagada de su contacto se haya creado antes.
+export function buildDePautaContactIds(
+  pautaContacts: Iterable<string>,
+  opportunities: Opportunity[],
+): Set<string> {
+  const out = new Set(pautaContacts)
+  for (const o of opportunities) {
+    if (o.contactId && !out.has(o.contactId) && isPaidTraffic(o)) out.add(o.contactId)
+  }
+  return out
+}
+
 // An opportunity's own custom field that holds the campaign / ad name. Field names
 // vary per sub-account ("Nombre pauta", "Nombre de la pauta", …) so match loosely
 // by requiring both "nombre" and "pauta" in the field name.

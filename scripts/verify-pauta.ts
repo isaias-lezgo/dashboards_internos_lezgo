@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   isPaidTraffic,
   isDePauta,
+  buildDePautaContactIds,
   campaignHeadline,
   type HasKey,
 } from "../lib/pauta";
@@ -71,6 +72,26 @@ assert.equal(
   false,
   "una grabación de Callpicker sin registro de pauta no debe contar por ningún lado",
 );
+
+// --- "de pauta" a nivel CONTACTO, para lo que cuelga del contacto y no de una
+// oportunidad (las citas). Es isDePauta subido un nivel: registro Pauta, o
+// alguna oportunidad del contacto con tráfico pagado.
+{
+  const deOpp = (id: string, contactId: string, source?: string) =>
+    ({ id, name: id, contactId, source } as unknown as Opportunity);
+  const ids = buildDePautaContactIds(new Set(["c-registro"]), [
+    deOpp("o1", "c-pagado", "facebook"),
+    deOpp("o2", "c-organico", "referido"),
+    deOpp("o3", "c-mixto", "referido"),
+    deOpp("o4", "c-mixto", "instagram"),
+    deOpp("o5", "c-callpicker", CALLPICKER[0]),
+  ]);
+  assert.ok(ids.has("c-registro"), "registro Pauta sin oportunidad: cuenta");
+  assert.ok(ids.has("c-pagado"), "oportunidad de tráfico pagado sin registro: cuenta");
+  assert.ok(ids.has("c-mixto"), "basta UNA oportunidad pagada del contacto");
+  assert.ok(!ids.has("c-organico"), "orgánico sin registro: no cuenta");
+  assert.ok(!ids.has("c-callpicker"), "la regla de tokens de isPaidTraffic se hereda");
+}
 
 // --- campaignHeadline: junta las creatividades de una campaña sin tocar los
 // nombres de formulario, que también separan con guiones.

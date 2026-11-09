@@ -20,10 +20,11 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart"
 import type { Opportunity, Contact, Pauta, Task, Call, Appointment, Pipeline } from "@/lib/types"
-import { Tag, FileText, Calendar, BarChart3, TrendingUp, TrendingDown, ListFilter } from "lucide-react"
+import { Tag, FileText, Calendar, CalendarCheck, BarChart3, TrendingUp, TrendingDown, ListFilter } from "lucide-react"
 import { PLATFORM_COLORS, PLATFORM_ORDER, platformLabel, originSignalText, hasGoogleAdsSignal, hasWebsiteSignal } from "@/lib/source-platform"
 import {
   isDePauta as isDePautaOpp,
+  buildDePautaContactIds,
   resolveCampaignName,
   buildPautaNameByContact,
   type HasKey,
@@ -41,6 +42,12 @@ import type { ReportInput, ReportSection } from "@/lib/report"
 import { useMetaInvestment, metaCoverKpis } from "./meta-investment-section"
 import { PaidPerformanceTable, usePaidPerformance, buildPaidReportSection } from "./paid-performance-table"
 import { PaidStageChart, buildPaidStageReportSection, type PaidStageGroupBy } from "./paid-stage-chart"
+import {
+  AppointmentOutcomeCard,
+  buildAppointmentOutcome,
+  buildAppointmentOutcomeReportSection,
+} from "./appointment-outcome"
+import { AppointmentDrillDrawer, APPT_DRILL_CLOSED, type ApptDrillState } from "./appointment-drill-drawer"
 import { buildAttributionContext, buildMetaIndex, oppAdId } from "@/lib/meta-attribution"
 import { EMPTY_META, urlPlatform, type PaidGroupBy as PaidTableGroupBy } from "@/lib/paid-performance"
 import type { MetaAdsData, MetaAdsStatus } from "@/lib/types"
@@ -59,6 +66,7 @@ import {
   ChartEmpty,
   ChartHint,
   MarketingSummaryStrip,
+  ScopePill,
   TopNSlider,
   NonZeroTooltipContent,
   CopyButton,
@@ -564,6 +572,20 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     [pautaContactIds]
   )
 
+  // Resultado de las citas, solo de leads de pauta. La cita cuelga del contacto,
+  // no de una oportunidad, así que la regla de isDePauta sube a nivel contacto
+  // (lib/pauta), sobre el historial completo de oportunidades: una cita en la
+  // ventana cuenta aunque la oportunidad pagada de su contacto sea anterior.
+  const dePautaContactIds = useMemo(
+    () => buildDePautaContactIds(pautaContactIds, lookupOpportunities),
+    [pautaContactIds, lookupOpportunities]
+  )
+  const pautaApptOutcome = useMemo(
+    () => buildAppointmentOutcome(appointments.filter((a) => dePautaContactIds.has(a.contactId))),
+    [appointments, dePautaContactIds]
+  )
+  const [apptDrill, setApptDrill] = useState<ApptDrillState>(APPT_DRILL_CLOSED)
+
   // El contexto de atribución se construye UNA vez por payload y lo comparten los
   // tiles de Meta y la tabla de rendimiento: dos contextos podrían resolver un ad
   // id distinto. Sin Meta el índice está vacío y la cadena devuelve el id crudo.
@@ -1049,6 +1071,15 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     const stageSection = buildPaidStageReportSection({ groups: stageGroups, groupBy: stageGroupBy, includeLost: stageIncludeLost })
     if (stageSection) sections.push(stageSection)
 
+    const citasSection = buildAppointmentOutcomeReportSection({
+      id: "citas-pauta",
+      title: "Resultado de las citas de leads de pauta",
+      explanation:
+        "Estatus final de las citas de los contactos que llegaron por pauta (con registro de pauta o con una oportunidad de tráfico pagado): asistió, confirmada, pendiente, no asistió o cancelada. Mide cuánto de lo que trae la pauta llega a sentarse con un asesor.",
+      segments: pautaApptOutcome,
+    })
+    if (citasSection) sections.push(citasSection)
+
     if (leadsByCategory.length > 0) {
       const cats = SOURCE_CATEGORY_ORDER.filter((cat) =>
         leadsByCategory.some((r) => r.breakdown.some((b) => b.category === cat))
@@ -1231,7 +1262,7 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
     locationName, originGroupBy, wonGroupBy,
     lostKeys, lostTopN, lostByReasonKeyCount,
     wonKeys, wonTopN, metaInv, paidGroups, paidGroupBy, paidIncludeLost,
-    stageGroups, stageGroupBy, stageIncludeLost,
+    stageGroups, stageGroupBy, stageIncludeLost, pautaApptOutcome,
   ])
 
   return (
@@ -1277,6 +1308,20 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
         onIncludeLostChange={setStageIncludeLost}
         opportunities={opportunities}
         onDrill={setDrill}
+      />
+
+      <AppointmentOutcomeCard
+        segments={pautaApptOutcome}
+        onDrill={setApptDrill}
+        drillTitle="Citas de pauta"
+        icon={CalendarCheck}
+        emptyMessage="Sin citas de leads de pauta en el periodo."
+        actions={
+          <ScopePill
+            label="Solo pauta"
+            tooltip="Citas de contactos que llegaron por pauta: tienen registro de pauta o alguna oportunidad con tráfico pagado, la misma regla de «Oportunidades por pauta». Cada cita cuenta por su propia fecha."
+          />
+        }
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1957,6 +2002,12 @@ export function MarketingDashboard({ opportunities, allOpportunities, contacts, 
           )}
         </ChartCardContent>
       </DashboardCard>
+
+      <AppointmentDrillDrawer
+        drill={apptDrill}
+        onDrillChange={setApptDrill}
+        contacts={lookupContacts}
+      />
 
       <ChartDrillDrawer
         drill={drill}

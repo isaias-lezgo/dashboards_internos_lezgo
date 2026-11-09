@@ -471,6 +471,11 @@ the marketing charts and the AI tools. Do not re-inline this logic anywhere.
   palabras y se busca la frase; medido sobre los 13,517 registros del roster eso quita
   exactamente esas 79 y no toca ninguna otra. `pnpm verify:pauta` fija los tres valores
   reales de Callpicker como regresión. **No lo regreses a `.includes()`.**
+- `buildDePautaContactIds()` sube esa misma regla a nivel **contacto**, para lo que
+  cuelga del contacto y no de una oportunidad: "Resultado de las citas" en Marketing
+  (solo pauta) cuenta las citas de contactos con registro Pauta o con alguna
+  oportunidad de tráfico pagado, sobre el historial completo. La barra es
+  `appointment-outcome.tsx`, una sola copia para Ventas (todas) y Marketing (pauta).
 - `resolveCampaignName()` — an ordered fallback chain, since sub-accounts name the field
   differently ("Nombre pauta", "Nombre de la pauta", …) and some accounts have no
   attribution URL at all.
@@ -752,7 +757,7 @@ Both dashboards export a branded PDF via `components/dashboard/export-report-but
   **already-computed aggregates** — deterministic code, not the model.
 - `app/api/analyze-report/route.ts` then makes one Haiku pass that writes an executive
   summary plus one analysis per section. Sections are analyzed **by default**; `ai: false`
-  opts out. Token budget is sized to the section count (~9 marketing / ~8 ventas) — if you
+  opts out. Token budget is sized to the section count (~10 marketing / ~8 ventas) — if you
   add sections, check it still fits.
 - `lib/pdf/*` renders the spec with pdfmake: `build-pdf.ts` (doc definition — **LETTER
   landscape**, 712pt usable width), `charts.ts` (hand-drawn canvas charts), `blocks.ts`

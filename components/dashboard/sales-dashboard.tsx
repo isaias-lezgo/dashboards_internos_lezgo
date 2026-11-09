@@ -50,6 +50,11 @@ import {
   type ApptDrillState,
 } from "./appointment-drill-drawer"
 import { ExportReportButton } from "./export-report-button"
+import {
+  AppointmentOutcomeCard,
+  buildAppointmentOutcome,
+  buildAppointmentOutcomeReportSection,
+} from "./appointment-outcome"
 import { DecisionCycleTable, buildDecisionCycle, fmtCycleDate } from "./decision-cycle-table"
 import type { ReportInput, ReportSection } from "@/lib/report"
 
@@ -107,26 +112,6 @@ interface SalesDashboardProps {
 
 // Funnel milestones are one quantity draining through stages, so hue carries no
 // data: navy frames the prospecting steps, amber marks the outcome worth reading.
-
-const APPT_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  showed:    { label: "Asistió",    color: "#10b981" },
-  confirmed: { label: "Confirmada", color: "#335577" },
-  new:       { label: "Pendiente",  color: "#F59B1B" },
-  noshow:    { label: "No asistió", color: "#ef4444" },
-  cancelled: { label: "Cancelada",  color: "#94a3b8" },
-  invalid:   { label: "Inválida",   color: "#6b7280" },
-}
-
-const KNOWN_APPT_STATUS_ORDER = ["showed", "confirmed", "new", "noshow", "cancelled", "invalid"]
-
-function apptStatusVisual(status: string, fallbackIndex: number): { label: string; color: string } {
-  const known = APPT_STATUS_CONFIG[status]
-  if (known) return known
-  return {
-    label: status.charAt(0).toUpperCase() + status.slice(1),
-    color: chartPaletteColor(fallbackIndex),
-  }
-}
 
 // Timeline (Línea de tiempo) — amber for contactos, emerald for oportunidades.
 type TimelineGran = "day" | "week" | "month"
@@ -369,31 +354,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
   }, [opportunities, appointments])
 
   // ── Resultado de las citas (barra segmentada por estatus) ──
-  const apptOutcomeData = useMemo(() => {
-    const byStatus = new Map<string, Appointment[]>()
-    for (const a of appointments) {
-      if (!byStatus.has(a.status)) byStatus.set(a.status, [])
-      byStatus.get(a.status)!.push(a)
-    }
-    const statuses = [...byStatus.keys()].sort((a, b) => {
-      const ai = KNOWN_APPT_STATUS_ORDER.indexOf(a)
-      const bi = KNOWN_APPT_STATUS_ORDER.indexOf(b)
-      if (ai === -1 && bi === -1) return a.localeCompare(b)
-      if (ai === -1) return 1
-      if (bi === -1) return -1
-      return ai - bi
-    })
-    return statuses.map((status, i) => {
-      const appts = byStatus.get(status)!
-      return {
-        status,
-        appts,
-        count: appts.length,
-        pct: appointments.length > 0 ? (appts.length / appointments.length) * 100 : 0,
-        ...apptStatusVisual(status, i),
-      }
-    })
-  }, [appointments])
+  const apptOutcomeData = useMemo(() => buildAppointmentOutcome(appointments), [appointments])
 
   // ── Razones de pérdida agrupadas (top 5 + resto) ──
   const lossGroupsData = useMemo(() => {
@@ -712,19 +673,14 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
       })
     }
 
-    if (apptOutcomeData.length > 0) {
-      sections.push({
-        id: "citas",
-        title: "Resultado de las citas",
-        explanation:
-          "Distribución de las citas agendadas según su estatus final: asistió, confirmada, pendiente, no asistió o cancelada. Mide la efectividad del agendamiento.",
-        blocks: [{
-          t: "chart", type: "pie", valueLabel: "Citas",
-          title: `Citas (total: ${appointments.length})`,
-          series: apptOutcomeData.map((s) => ({ label: s.label, value: s.count })),
-        }],
-      })
-    }
+    const citasSection = buildAppointmentOutcomeReportSection({
+      id: "citas",
+      title: "Resultado de las citas",
+      explanation:
+        "Distribución de las citas agendadas según su estatus final: asistió, confirmada, pendiente, no asistió o cancelada. Mide la efectividad del agendamiento.",
+      segments: apptOutcomeData,
+    })
+    if (citasSection) sections.push(citasSection)
 
     if (lossGroupsData.groups.length > 0) {
       sections.push({
@@ -1425,40 +1381,7 @@ export function SalesDashboard({ opportunities, allOpportunities, contacts, allC
 
       {/* ── Citas ──────────────────────────────────── */}
       <SectionHeader title="Citas" />
-      <DashboardCard>
-        <ChartCardHeader title="Resultado de las citas" total={appointments.length} />
-        <ChartCardContent>
-          {apptOutcomeData.length === 0 ? (
-            <ChartEmpty message="Sin citas para mostrar" height={96} />
-          ) : (
-            <>
-              <div className="flex h-14 w-full gap-0.5 overflow-hidden rounded-lg">
-                {apptOutcomeData.map((seg) => (
-                  <button
-                    key={seg.status}
-                    type="button"
-                    className="flex min-w-[84px] flex-col justify-center px-3 text-left text-white transition-[filter] hover:brightness-110"
-                    style={{ flexGrow: seg.count, flexBasis: 0, background: seg.color }}
-                    onClick={() =>
-                      setApptDrill({
-                        open: true,
-                        title: `Citas · ${seg.label}`,
-                        appointments: seg.appts,
-                      })
-                    }
-                  >
-                    <span className="text-base font-bold leading-none tabular-nums">{seg.count}</span>
-                    <span className="mt-1 truncate text-[10px] font-medium opacity-90">
-                      {seg.label} · {seg.pct.toFixed(0)}%
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <ChartHint>Ancho proporcional al volumen · Haz clic en un segmento para ver las citas</ChartHint>
-            </>
-          )}
-        </ChartCardContent>
-      </DashboardCard>
+      <AppointmentOutcomeCard segments={apptOutcomeData} onDrill={setApptDrill} />
 
       {/* ── Análisis de Pérdidas ───────────────────── */}
       <SectionHeader title="Análisis de Pérdidas" />
