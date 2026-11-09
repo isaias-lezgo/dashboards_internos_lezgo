@@ -831,7 +831,14 @@ re-inlinees ninguna de estas reglas en un componente.
   "Leads César". Normalizarlos es una decisión de negocio, no de código.
 - **Tipo de pauta es el de la PRIMERA pauta del contacto**, espejo deliberado de
   `buildPautaNameByContact` en `lib/pauta.ts`. Se construye sobre el historial completo,
-  no sobre el filtrado por fecha.
+  no sobre el filtrado por fecha. **Sin ningún registro Pauta, respalda el campo de
+  contacto "Tipo de pauta"** (`pautaTipoFromContactField`, nombre exacto; "WhatsApp" →
+  "Mensaje WhatsApp"). El registro lo crea un workflow de GHL que debe conocer cada
+  formulario: en Plaza las campañas de oct-2026 arrancaron el 29-oct y el workflow se
+  actualizó el 2-nov, así que esos leads salían "Sin pauta" aunque el campo decía
+  "Formulario". La pauta siempre gana al campo. El respaldo también reclasifica leads
+  de antes del objeto Pauta (16-ene-2026): Yconia 879, Plaza 493, Condesa 84. Solo
+  toca este filtro: `isDePauta` y "Pautas por canal" siguen leyendo solo registros.
 - **Sin filtros activos, `applyDashboardFilters` devuelve los MISMOS arreglos por
   referencia**, para que los memos aguas abajo no se invaliden y el panel se comporte
   exactamente como antes de que la barra existiera.

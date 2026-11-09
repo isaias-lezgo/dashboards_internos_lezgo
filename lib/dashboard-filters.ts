@@ -267,6 +267,58 @@ export function buildFirstPautaTipoByContact(pautas: Pauta[]): Map<string, strin
 }
 
 /**
+ * El campo de contacto que respalda al objeto Pauta cuando el contacto no tiene
+ * ningún registro. Nombre EXACTO salvo mayúsculas, como los segmentos: "Tipo de
+ * pauta específica" no es este campo.
+ *
+ * Por qué existe: el registro Pauta lo crea un workflow de GHL que tiene que
+ * conocer cada formulario. En Plaza las campañas de oct-2026 arrancaron el 29-oct
+ * y el workflow no se actualizó hasta el 2-nov: esos leads salían "Sin pauta"
+ * aunque este campo — que llena OTRO workflow — sí decía "Formulario". Validado
+ * contra la atribución del contacto: 481 de 493 en Plaza y 866 de 866 en Yconia
+ * traen anuncio pagado. La mayoría son de antes del 16-ene-2026, cuando el objeto
+ * Pauta aún no existía.
+ */
+const TIPO_PAUTA_FIELD = "tipo de pauta"
+
+/**
+ * El campo dice "WhatsApp" donde el objeto Pauta dice "Mensaje WhatsApp". Sin
+ * este alias el menú ofrecería dos opciones para el mismo canal.
+ */
+const TIPO_PAUTA_ALIASES: Record<string, string> = {
+  whatsapp: "Mensaje WhatsApp",
+}
+
+export function pautaTipoFromContactField(contact: Contact | undefined): string | undefined {
+  const resolved = contact?.customFieldsResolved
+  if (!resolved) return undefined
+  for (const [name, val] of Object.entries(resolved)) {
+    if (name.trim().toLowerCase() !== TIPO_PAUTA_FIELD) continue
+    const raw = String((Array.isArray(val) ? val[0] : val) ?? "").trim()
+    if (!raw) continue
+    return TIPO_PAUTA_ALIASES[raw.toLowerCase()] ?? raw
+  }
+  return undefined
+}
+
+/**
+ * contactId → su tipo de pauta: el de su PRIMERA pauta y, si no tiene ninguna, el
+ * del campo de contacto. La pauta siempre gana — el campo es respaldo, no fuente.
+ */
+export function buildPautaTipoByContact(
+  pautas: Pauta[],
+  contacts: Contact[],
+): Map<string, string> {
+  const out = buildFirstPautaTipoByContact(pautas)
+  for (const c of contacts) {
+    if (out.has(c.id)) continue
+    const tipo = pautaTipoFromContactField(c)
+    if (tipo) out.set(c.id, tipo)
+  }
+  return out
+}
+
+/**
  * El valor de un criterio por segmento dentro de un blob de campos ya resueltos
  * por nombre, o undefined si el campo no está.
  *
@@ -350,7 +402,8 @@ export function isMontseContact(contactId: string | undefined, ctx: FilterContex
  */
 export interface FilterContext {
   contactById: Map<string, Contact>
-  firstPautaTipoByContact: Map<string, string>
+  /** contactId → tipo de pauta, con el respaldo del campo de contacto. */
+  pautaTipoByContact: Map<string, string>
   /**
    * contactId → sus oportunidades del historial COMPLETO. Solo lo consulta
    * `outOfWindowContactPasses`, para juzgar a un contacto cuyos registros caen en
@@ -381,7 +434,7 @@ export function buildFilterContext(
   }
   return {
     contactById,
-    firstPautaTipoByContact: buildFirstPautaTipoByContact(allPautas),
+    pautaTipoByContact: buildPautaTipoByContact(allPautas, allContacts),
     opportunitiesByContact,
     pautaNameByContact: buildPautaNameByContact(allPautas),
   }
@@ -395,7 +448,7 @@ function anySelected(values: string[], selected: string[]): boolean {
 
 export function pautaTipoOfContact(contactId: string | undefined, ctx: FilterContext): string {
   if (!contactId) return SIN_PAUTA
-  return ctx.firstPautaTipoByContact.get(contactId) ?? SIN_PAUTA
+  return ctx.pautaTipoByContact.get(contactId) ?? SIN_PAUTA
 }
 
 /** O dentro de cada filtro, Y entre filtros. */

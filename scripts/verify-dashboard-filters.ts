@@ -25,6 +25,7 @@ import {
   isMontseCampaign,
   opportunityPasses,
   originsOfOpportunity,
+  pautaTipoOfContact,
   segmentOfContact,
   segmentOfOpportunity,
   statusKey,
@@ -143,6 +144,35 @@ async function main() {
   assert.equal(primeras.get("c1"), "Google Ads", "gana la más antigua, no la primera del arreglo");
   assert.equal(primeras.get("c2"), "Formulario");
   assert.equal(primeras.size, 2, "una pauta sin contactId no crea entrada");
+
+  // ── Respaldo: el campo de contacto "Tipo de pauta" ────────────────────────
+  // Plaza, oct-2026: el workflow que crea el registro Pauta no conocía los
+  // formularios nuevos y cuatro leads salieron "Sin pauta" aunque GHL sabía que
+  // venían de formulario. El campo de contacto sí lo decía.
+  const conCampo = contact("cf1", { customFieldsResolved: { "Tipo de pauta": "Formulario" } });
+  const conWhats = contact("cf2", { customFieldsResolved: { "Tipo de Pauta": "WhatsApp" } });
+  const conAmbos = contact("c1", { customFieldsResolved: { "Tipo de pauta": "Formulario" } });
+  const sinNada = contact("cf3", { customFieldsResolved: { "Tipo de pauta específica": "Formulario" } });
+  const ctxCampo = buildFilterContext([conCampo, conWhats, conAmbos, sinNada], historial, []);
+  assert.equal(pautaTipoOfContact("cf1", ctxCampo), "Formulario", "sin pauta, manda el campo");
+  assert.equal(
+    pautaTipoOfContact("cf2", ctxCampo),
+    "Mensaje WhatsApp",
+    "el campo dice 'WhatsApp' donde el objeto Pauta dice 'Mensaje WhatsApp': una sola opción",
+  );
+  assert.equal(pautaTipoOfContact("c1", ctxCampo), "Google Ads", "con pauta, la pauta gana al campo");
+  assert.equal(pautaTipoOfContact("cf3", ctxCampo), SIN_PAUTA, "match exacto del nombre, no substring");
+  assert.equal(pautaTipoOfContact("nadie", ctxCampo), SIN_PAUTA);
+
+  // En la cascada y en el menú: un valor aparece si y sólo si algún registro
+  // puede ser seleccionado por él.
+  const dataCampo = { ...EMPTY_DATA, contacts: [conCampo, sinNada] };
+  const soloForm = applyDashboardFilters(dataCampo, filters({ pautaTypes: ["Formulario"] }), ctxCampo);
+  assert.deepEqual(soloForm.contacts.map((c) => c.id), ["cf1"], "el lead sin registro Pauta es seleccionable");
+  assert.deepEqual(
+    buildFilterOptions([], [conCampo, sinNada], ctxCampo).pautaTypes.map((o) => o.value),
+    ["Formulario", SIN_PAUTA],
+  );
 
   // ── Opción múltiple: basta un valor seleccionado (O dentro del filtro) ────
   const ctxMulti = buildFilterContext([], [], []);
