@@ -87,6 +87,20 @@ function relativeAge(fetchedAt: string, _tick: number): string {
   return days === 1 ? "hace 1 día" : `hace ${days} días`
 }
 
+// La misma antigüedad, para la frase del banner: "de hace alrededor de 14 horas".
+function approxAge(fetchedAt: string, _tick: number): string {
+  const mins = Math.max(1, Math.floor((Date.now() - new Date(fetchedAt).getTime()) / 60000))
+  if (mins === 1) return "1 minuto"
+  if (mins < 60) return `${mins} minutos`
+  // Piso, igual que relativeAge: el banner y el "Actualizado hace X" del header
+  // se leen juntos y no pueden decir "5 días" uno y "4 días" el otro.
+  const hrs = Math.floor(mins / 60)
+  if (hrs === 1) return "1 hora"
+  if (hrs < 24) return `${hrs} horas`
+  const days = Math.floor(hrs / 24)
+  return days === 1 ? "1 día" : `${days} días`
+}
+
 // `tabs` comes from the session's access scope (app/page.tsx): null = every tab.
 // Hiding a tab here is cosmetic — the assistant's routes check the scope themselves.
 export function DashboardApp({ tabs = null }: { tabs?: readonly DashboardTab[] | null }) {
@@ -99,7 +113,7 @@ export function DashboardApp({ tabs = null }: { tabs?: readonly DashboardTab[] |
 
   useEffect(() => { document.title = TAB_TITLES[activeTab] }, [activeTab])
 
-  const { data, isLoading, isError, progress, locationName, steps, refresh } = useDashboardData({})
+  const { data, isLoading, isRefreshing, isError, progress, locationName, steps, refresh } = useDashboardData({})
 
   // La pestaña Desempeño solo existe donde hay una etapa de apartado que medir
   // (detección por presencia, como los segmentos Plaza/Agencia). Si el proyecto
@@ -341,9 +355,12 @@ export function DashboardApp({ tabs = null }: { tabs?: readonly DashboardTab[] |
               size="sm"
               className="h-8 gap-1.5 rounded-lg text-xs font-medium"
               onClick={() => refresh()}
-              disabled={isLoading}
+              // Con el refresco en segundo plano corriendo, un clic aquí lanzaría
+              // un SEGUNDO sync completo del mismo proyecto contra GHL.
+              disabled={isLoading || isRefreshing}
+              title={isRefreshing ? "Ya se está actualizando" : undefined}
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading || isRefreshing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Actualizar</span>
             </Button>
             
@@ -381,6 +398,21 @@ export function DashboardApp({ tabs = null }: { tabs?: readonly DashboardTab[] |
           </div>
         </div>
       </header>
+
+      {/* El refresco en segundo plano, a la vista. Sin esto la persona ve datos de
+          hace horas sin saber que ya vienen los nuevos, y pica "Actualizar". El
+          ámbar marca dónde va la atención (DESIGN.md); el resto es neutro. */}
+      {isRefreshing && data?.meta?.fetchedAt && (
+        <div role="status" aria-live="polite" className="flex items-center gap-3 border-b border-[#F59B1B]/40 bg-muted px-4 py-2.5 sm:px-6">
+          <RefreshCw aria-hidden className="h-5 w-5 shrink-0 animate-spin text-[#C27A10] [animation-duration:2.5s] motion-reduce:animate-none dark:text-[#F59B1B]" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-tight text-foreground">Actualizando datos…</p>
+            <p className="text-xs text-muted-foreground">
+              Estás viendo la información de hace alrededor de {approxAge(data.meta.fetchedAt, nowTick)}. Se actualizará sola en cuanto termine, sin recargar la página.
+            </p>
+          </div>
+        </div>
+      )}
 
       <nav className="border-b border-border bg-card px-4 sm:px-6" aria-label="Vistas del panel">
         <div className="flex gap-6 sm:gap-8">

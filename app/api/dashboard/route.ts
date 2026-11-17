@@ -36,8 +36,13 @@ export async function GET(req: Request) {
 
   if (cached) {
     // Warm path: one frame, no progress, no GHL. This is the whole point.
-    const body = enc({ type: "data", ...cached.payload });
+    let body = enc({ type: "data", ...cached.payload });
     if (isStale(cached.syncedAt)) {
+      // Le avisa al navegador que este payload ya viene con un refresco detrás:
+      // es lo que prende el banner "Actualizando datos…" y bloquea "Actualizar".
+      // Va ANTES del frame de datos y la decisión es del servidor — el navegador
+      // no conoce FRESH_WINDOW_MS y no debe adivinarlo.
+      body = enc({ type: "refreshing" }) + body;
       // after() runs once the response is fully sent, so the user never waits on
       // this. Without it the function would be torn down as soon as the response
       // closed and the refresh would silently never happen.

@@ -36,6 +36,14 @@ const INITIAL_STEPS: StepMap = {
 // because several components import DashboardData by name.
 export type DashboardData = DashboardPayload;
 
+// El refresco en segundo plano: cada cuánto se pregunta si ya terminó, cuánto se
+// espera a que el servidor tome el candado (after() corre DESPUÉS de mandar la
+// respuesta, así que la primera consulta puede llegar antes) y cuándo rendirse.
+// El tope va por encima de los 300 s de maxDuration de la ruta.
+const POLL_MS = 5_000;
+const CLAIM_GRACE_MS = 30_000;
+const GIVE_UP_MS = 6 * 60_000;
+
 export function useDashboardData(params?: {
   startDate?: string;
   endDate?: string;
@@ -46,12 +54,18 @@ export function useDashboardData(params?: {
   const [progress, setProgress] = useState<string>("Iniciando sincronización…");
   const [locationName, setLocationName] = useState<string>("");
   const [steps, setSteps] = useState<StepMap>(INITIAL_STEPS);
+  // El servidor mandó un caché vencido y está sincronizando detrás: hay banner,
+  // "Actualizar" se bloquea y los datos se cambian solos cuando termine.
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const startDate = params?.startDate;
   const endDate = params?.endDate;
 
-  const load = useCallback(async (sd?: string, ed?: string, fresh?: boolean) => {
+  // `silent`: el cambio de datos al terminar el refresco. No prende isLoading ni
+  // reinicia los pasos — la persona sigue trabajando sobre lo que ya ve, y un
+  // fallo aquí no es un error en pantalla: se queda con el caché que tenía.
+  const load = useCallback(async (sd?: string, ed?: string, fresh?: boolean, silent?: boolean) => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -65,10 +79,14 @@ export function useDashboardData(params?: {
     const qs = searchParams.toString();
     const url = `/api/dashboard${qs ? `?${qs}` : ""}`;
 
-    setIsLoading(true);
-    setIsError(false);
-    setProgress("Iniciando sincronización…");
-    setSteps(INITIAL_STEPS);
+    if (!silent) {
+      setIsLoading(true);
+      setIsError(false);
+      setProgress("Iniciando sincronización…");
+      setSteps(INITIAL_STEPS);
+      setIsRefreshing(false);
+    }
+    let refreshing = false;
 
     try {
       const result = await fetchStream<DashboardData>(
@@ -80,19 +98,25 @@ export function useDashboardData(params?: {
           setSteps((prev) => ({
             ...prev,
             [step.key as StepKey]: { status: step.status, count: step.count },
-          }))
+          })),
+        () => { refreshing = true; }
       );
       // Ignore the result of a fetch that has since been superseded (e.g. the
       // mount→abort→remount cycle from React StrictMode in dev or router.refresh
       // after login). Otherwise a stale fetch can clobber the newer one's state.
       if (ctrl.signal.aborted) return;
       setData(result);
+      setIsRefreshing(refreshing);
       if (result.locationName) setLocationName(result.locationName);
       setProgress("");
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setIsError(true);
-        setProgress("");
+        if (silent) {
+          setIsRefreshing(false);
+        } else {
+          setIsError(true);
+          setProgress("");
+        }
       }
     } finally {
       // Only the current (non-aborted) fetch may flip loading off. A superseded
@@ -111,6 +135,56 @@ export function useDashboardData(params?: {
     };
   }, [load, startDate, endDate]);
 
+  // Mientras corre el refresco en segundo plano, pregunta si ya terminó. Tres
+  // salidas: el caché avanzó → se traen los datos nuevos sin pantalla de carga;
+  // el candado se soltó sin avanzar (el refresco falló y dejó el último caché
+  // bueno) → se retira el banner; nadie tomó el candado o pasó el tope → igual.
+  // Un fallo de red al preguntar no es ninguna de las tres: se reintenta.
+  const shownAt = data?.meta?.fetchedAt;
+  useEffect(() => {
+    if (!isRefreshing || !shownAt) return;
+    const startedAt = Date.now();
+    let sawSyncing = false;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/dashboard/status", { cache: "no-store" });
+        if (stopped) return;
+        if (res.ok) {
+          const s = (await res.json()) as { syncedAt: string | null; syncing: boolean };
+          if (stopped) return;
+          if (s.syncedAt && new Date(s.syncedAt).getTime() > new Date(shownAt).getTime()) {
+            load(startDate, endDate, false, true);
+            return;
+          }
+          if (s.syncing) sawSyncing = true;
+          else if (sawSyncing || Date.now() - startedAt > CLAIM_GRACE_MS) {
+            setIsRefreshing(false);
+            return;
+          }
+        } else if (res.status === 401) {
+          setIsRefreshing(false);
+          return;
+        }
+      } catch {
+        if (stopped) return;
+      }
+      if (Date.now() - startedAt > GIVE_UP_MS) {
+        setIsRefreshing(false);
+        return;
+      }
+      timer = setTimeout(tick, POLL_MS);
+    };
+
+    timer = setTimeout(tick, POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [isRefreshing, shownAt, load, startDate, endDate]);
+
   // Defaults to fresh: the "Actualizar" button exists precisely to bypass the
   // cache. A refresh that returned the same thing already on screen would feel
   // broken.
@@ -124,6 +198,7 @@ export function useDashboardData(params?: {
   return {
     data,
     isLoading,
+    isRefreshing,
     isError,
     progress,
     locationName,

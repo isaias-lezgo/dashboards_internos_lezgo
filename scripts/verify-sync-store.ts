@@ -12,6 +12,7 @@ import {
   FRESH_WINDOW_MS,
   isStale,
   readSync,
+  readSyncStatus,
   writeSync,
   claimSync,
   releaseSync,
@@ -96,9 +97,15 @@ async function main() {
   assert.equal(never, null);
 
   // --- the lock: the second claimer gets nothing while the first holds it
+  assert.deepEqual(await readSyncStatus(A), { syncedAt: stamp, syncing: false }, "en reposo: su fecha, sin candado");
   assert.equal(await claimSync(A), true, "first claim wins");
+  // El banner "Actualizando datos…" vive de esto: con el candado tomado dice
+  // syncing, y la fecha del caché NO se mueve hasta que el sync escribe.
+  assert.deepEqual(await readSyncStatus(A), { syncedAt: stamp, syncing: true });
+  assert.deepEqual(await readSyncStatus(B), { syncedAt: stamp, syncing: false }, "el candado de A no prende el banner de B");
   assert.equal(await claimSync(A), false, "second claim is refused while held");
   await releaseSync(A);
+  assert.equal((await readSyncStatus(A)).syncing, false, "soltar el candado apaga el banner");
   assert.equal(await claimSync(A), true, "claimable again after release");
   await releaseSync(A, "boom");
 
@@ -111,7 +118,9 @@ async function main() {
   // that must return null ("no cache"), not blow up in gunzip.
   const C: ClientConfig = { ...A, id: "__verify_c" };
   assert.equal(await claimSync(C), true, "claiming an unsynced project must work");
+  assert.deepEqual(await readSyncStatus(C), { syncedAt: null, syncing: true }, "la fila sembrada no es un caché de 1970");
   await releaseSync(C, "murió a medio sync");
+  assert.deepEqual(await readSyncStatus({ ...A, id: "__verify_nunca" }), { syncedAt: null, syncing: false });
   assert.equal(await readSync(C), null, "an empty payload reads as no cache, not as corruption");
 
   // --- writing overwrites: the cache holds only the present
@@ -121,6 +130,10 @@ async function main() {
   assert.ok(overwritten);
   assert.equal(overwritten.payload.members[0], "a2");
   assert.equal(overwritten.syncedAt, newer);
+  // Escribir avanza la fecha y suelta el candado: la señal para cambiar los datos.
+  assert.equal(await claimSync(A), true);
+  await writeSync(A, payload("a3", newer));
+  assert.deepEqual(await readSyncStatus(A), { syncedAt: newer, syncing: false });
 
   // --- clean up so the table only ever holds real projects
   const { getSql } = await import("../lib/db");

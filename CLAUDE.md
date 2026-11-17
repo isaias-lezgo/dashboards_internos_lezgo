@@ -168,6 +168,7 @@ already holds and need only the middleware gate:
 | Route | Purpose |
 |---|---|
 | `dashboard` | the main NDJSON sync above |
+| `dashboard/status` | `{ syncedAt, syncing }` del caché, para el banner "Actualizando datos…" — **no GHL**, sí `requireClient()` |
 | `dashboard-messages` | NDJSON stream of conversation messages, loaded separately from the main sync |
 | `conversations` | on-demand full message threads for a batch of contacts |
 | `contact-notes` / `contact-tasks` | per-contact detail, fetched live when a drawer opens |
@@ -225,6 +226,18 @@ GET /api/dashboard
 - El header muestra **"Actualizado hace X"** en tiempo relativo, no la hora del reloj:
   un caché sin antigüedad visible miente por omisión. El botón **Actualizar** manda
   `?fresh=1`, que se salta el caché.
+- **El refresco en segundo plano se ve** (2026-11-17). Cuando el caché que se sirve
+  está vencido, la ruta antepone un frame `{ type: "refreshing" }` al de datos — la
+  decisión es del servidor, el navegador no conoce `FRESH_WINDOW_MS`. Con eso
+  `use-dashboard-data.ts` pone `isRefreshing`: sale el banner "Actualizando datos…"
+  bajo el header y **"Actualizar" se bloquea** (un clic lanzaría un segundo sync
+  completo del mismo proyecto). El hook pregunta cada 5 s a `GET /api/dashboard/status`
+  (`readSyncStatus`: `synced_at` y candado, nunca el payload) y, cuando `syncedAt`
+  rebasa el `fetchedAt` en pantalla, recarga con `silent` — sin `isLoading`, sin
+  pantalla de carga, sin recargar la página. Tres formas de apagarse sin datos
+  nuevos: el candado se soltó sin avanzar (refresco fallido), nadie lo tomó en 30 s
+  (`after()` corre DESPUÉS de la respuesta, por eso la gracia), o pasaron 6 min.
+  Medido en dev: Balvanera, banner a los 6 s, datos cambiados a los 42 s.
 - `/api/dashboard-messages` **no está cacheado** — se puede agregar igual después.
 
 ### Internal projects & the access gate

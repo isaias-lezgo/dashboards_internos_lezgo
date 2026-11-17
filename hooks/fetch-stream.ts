@@ -8,7 +8,7 @@ export interface StreamStep {
 
 /**
  * Reads an NDJSON stream of
- * `{ type: "progress" | "location" | "step" | "data" | "error", ... }` frames.
+ * `{ type: "progress" | "location" | "step" | "refreshing" | "data" | "error", ... }` frames.
  * Calls `onProgress` for progress frames, `onStep` for structured per-dataset
  * progress, and resolves with the payload of the single `data` frame (its `type`
  * field stripped).
@@ -18,7 +18,9 @@ export async function fetchStream<T>(
   onProgress: (message: string) => void,
   signal: AbortSignal,
   onLocation?: (name: string) => void,
-  onStep?: (step: StreamStep) => void
+  onStep?: (step: StreamStep) => void,
+  // El caché que llega está vencido y el servidor ya lanzó su refresco.
+  onRefreshing?: () => void
 ): Promise<T> {
   const res = await fetch(url, { signal });
   if (!res.ok || !res.body) {
@@ -48,6 +50,8 @@ export async function fetchStream<T>(
           onLocation?.(msg.name);
         } else if (msg.type === "step") {
           onStep?.({ key: msg.key, status: msg.status, count: msg.count });
+        } else if (msg.type === "refreshing") {
+          onRefreshing?.();
         } else if (msg.type === "data") {
           const { type: _t, ...rest } = msg;
           data = rest as T;

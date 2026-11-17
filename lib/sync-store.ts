@@ -52,6 +52,29 @@ export async function readSync(
   };
 }
 
+// Lo que el banner "Actualizando datos…" necesita saber, sin traer el payload:
+// de cuándo es el caché y si alguien lo está refrescando ahora. `syncing` aplica
+// el mismo vencimiento que claimSync — un candado de una función muerta no debe
+// dejar el banner prendido más de lo que deja congelado al proyecto.
+export async function readSyncStatus(
+  client: ClientConfig,
+): Promise<{ syncedAt: string | null; syncing: boolean }> {
+  const rows = await getSql()`
+    SELECT synced_at,
+           octet_length(payload) > 0 AS has_payload,
+           (sync_started_at IS NOT NULL
+             AND sync_started_at >= now() - make_interval(mins => ${LOCK_TIMEOUT_MINUTES})) AS syncing
+      FROM project_sync WHERE project_id = ${client.id}
+  `;
+  if (rows.length === 0) return { syncedAt: null, syncing: false };
+  return {
+    // La fila sembrada por claimSync trae synced_at = epoch y payload vacío: eso
+    // es "sin caché", no un caché de 1970.
+    syncedAt: rows[0].has_payload ? new Date(rows[0].synced_at).toISOString() : null,
+    syncing: rows[0].syncing === true,
+  };
+}
+
 export async function writeSync(client: ClientConfig, payload: DashboardPayload): Promise<void> {
   const gz = gzipSync(Buffer.from(JSON.stringify(payload), "utf8"));
   // synced_at comes from the payload, not from now(): it records when the data was
