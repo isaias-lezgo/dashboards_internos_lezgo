@@ -709,6 +709,13 @@ panel y lo que GHL no sabe (cambaceo, accountability) queda fuera.
   Objetivos fijos en `PMI_OBJECTIVES` (por asesor y mes; semanal ÷ 4, diario ÷ 7; equipo
   × asesores con actividad). Semáforo 180 / 100 / 75 % del Excel. Conversiones `null`
   sin denominador, nunca 0 %.
+- **"Last Call" no es lead recibido** (2026-11-17). Un contacto cuyas oportunidades
+  están TODAS en la etapa "Last Call" (hoy solo existe en Condesa) no cuenta en
+  `leads` (`lastCallContactSet` en `lib/pmi.ts`, `isLastCallStage` en
+  `lib/pmi-stages.ts`): no es un prospecto potencial e inflaba el denominador de
+  lead → perfilamiento. Se juzga con `effectiveStage`, así que uno perdido DESDE Last
+  Call sigue fuera; rescatado a "Contacto En Seguimiento" vuelve a contar solo. Es por
+  estado actual, no evento: el conteo de un mes pasado puede moverse.
 - **Lead** = todo contacto nuevo (con desglose de pauta); **cita efectiva** = la
   PRIMERA cita `showed` de cada lead sobre el historial completo, por su fecha (las
   visitas siguientes del mismo lead no cuentan); **apartado** es un EVENTO, no un estado. Todo por día local.

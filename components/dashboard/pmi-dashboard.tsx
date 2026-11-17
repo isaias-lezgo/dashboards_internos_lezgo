@@ -47,7 +47,7 @@ const monthName = (ym: string, long = false) => (long ? MONTHS_LONG : MONTHS_SHO
 
 // Las reglas de cada indicador, en una sola copia para los ScopePill y el PDF.
 export const PMI_RULES = {
-  leads: "Todo contacto nuevo asignado al asesor en el período, venga de donde venga; abajo, cuántos son de pauta.",
+  leads: "Todo contacto nuevo asignado al asesor en el período, venga de donde venga, salvo los que están en «Last Call»; abajo, cuántos son de pauta.",
   perfilamientos: "Primera vez que la oportunidad llegó a Cliente Calificado o una etapa posterior. Las perdidas cuentan por su última etapa.",
   citas: "Primera cita con estado 'showed' de cada lead (el lead sí fue), por su fecha. Las visitas siguientes del mismo lead no cuentan.",
   apartados: "Primera vez que la oportunidad llegó a Apartado o una etapa posterior. Un apartado que después se cae sigue contando en su mes.",

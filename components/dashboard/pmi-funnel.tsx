@@ -36,7 +36,7 @@ const CONVERSION_SHORT: Record<keyof PmiConversions, string> = {
 // Cómo se cuenta cada escalón, en palabras para el equipo. Es el espejo de
 // collectEvents (lib/pmi.ts): si cambia una regla allá, cambia aquí.
 const STAGE_HELP: Record<PmiIndicator, string> = {
-  leads: "Todo contacto nuevo, por su fecha de creación (hora de México), asignado al asesor del contacto. «De pauta» son los que vienen de anuncios: ligados a un registro de Pauta o con una oportunidad de tráfico pagado.",
+  leads: "Todo contacto nuevo, por su fecha de creación (hora de México), asignado al asesor del contacto. No cuentan los que están en la etapa «Last Call»: si se rescatan a Contacto en Seguimiento, vuelven a contar. «De pauta» son los que vienen de anuncios: ligados a un registro de Pauta o con una oportunidad de tráfico pagado.",
   perfilamientos: "Oportunidades que llegaron por primera vez a «Cliente Calificado» o a cualquier etapa posterior (cita, visita, cotización, apartado… hasta entregado). Cuenta en la fecha en que cruzó ese hito, aunque después retroceda. Si ya estaba ahí cuando el panel empezó a registrarlo, la fecha es estimada.",
   citas: "La PRIMERA cita marcada como «Asistió» de cada lead, en la fecha de esa cita. Las visitas siguientes del mismo lead no vuelven a contar, y si su primera cita cayó antes del período, no cuenta en éste.",
   apartados: "Oportunidades cuya «Fecha de apartado» cae en el período. Sin ese campo lleno no cuenta, aunque esté en la etapa Apartado. El monto es el valor de la oportunidad.",

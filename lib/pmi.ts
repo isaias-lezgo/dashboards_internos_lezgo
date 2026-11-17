@@ -9,7 +9,7 @@
 import type { Appointment, Contact, Opportunity, Pauta } from "./types";
 import { localDay } from "./meta-attribution";
 import { isDePauta } from "./pauta";
-import { effectiveStage, isGanadoStage, milestoneDateField } from "./pmi-stages";
+import { effectiveStage, isGanadoStage, isLastCallStage, milestoneDateField } from "./pmi-stages";
 
 export type PmiIndicator = "leads" | "perfilamientos" | "citas" | "apartados" | "cierres" | "ganados";
 export const PMI_INDICATORS: readonly PmiIndicator[] = ["leads", "perfilamientos", "citas", "apartados", "cierres", "ganados"];
@@ -169,15 +169,34 @@ function pautaContactSet(input: PmiInput): Set<string> {
   return out;
 }
 
+// Contactos que NO cuentan como lead recibido: todas sus oportunidades están en
+// "Last Call" (lib/pmi-stages.ts). Se juzga con effectiveStage, así que uno que
+// se pierde DESDE Last Call sigue fuera — si no, reaparecería como lead justo al
+// perderse. Con cualquier otra oportunidad viva en otra etapa (o rescatado a
+// "Contacto En Seguimiento") el contacto cuenta. Sin oportunidad también cuenta:
+// no hay etapa que lo descarte.
+export function lastCallContactSet(opportunities: Opportunity[]): Set<string> {
+  const allLastCall = new Map<string, boolean>();
+  for (const opp of opportunities) {
+    if (!opp.contactId) continue;
+    const is = isLastCallStage(effectiveStage(opp));
+    allLastCall.set(opp.contactId, (allLastCall.get(opp.contactId) ?? true) && is);
+  }
+  const out = new Set<string>();
+  for (const [id, all] of allLastCall) if (all) out.add(id);
+  return out;
+}
+
 // Todos los eventos del PMI entre dos días locales (inclusive). Una pasada por
 // dataset; mes y año la comparten.
 export function collectEvents(input: PmiInput, since: string, until: string): PmiEvent[] {
   const inRange = (day: string) => day >= since && day <= until;
   const pauta = pautaContactSet(input);
+  const lastCall = lastCallContactSet(input.opportunities);
   const events: PmiEvent[] = [];
 
   for (const c of input.contacts) {
-    if (!c.createdAt) continue;
+    if (!c.createdAt || lastCall.has(c.id)) continue;
     const day = localDay(c.createdAt);
     if (!inRange(day)) continue;
     events.push({ kind: "leads", day, advisor: advisorOf(c.assignedTo), id: c.id, monto: 0, pauta: pauta.has(c.id), estimated: false });

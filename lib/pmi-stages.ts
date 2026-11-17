@@ -86,6 +86,20 @@ export function isGanadoStage(stageName: string | null): boolean {
   return n !== LOST_STAGE && matches(n, GANADO_TERMS);
 }
 
+// "Last Call" (Condesa, pipeline Ventas): el último intento antes de dar por
+// perdido a un lead que no respondió. No es un prospecto potencial, así que el
+// PMI no lo cuenta como lead recibido — contarlo castiga la conversión
+// lead → perfilamiento del asesor con leads que nunca pudo trabajar. Si lo
+// rescatan lo mueven a "01. Contacto En Seguimiento" y vuelve a contar solo.
+// Match exacto sobre el nombre normalizado, sin numeración: un substring
+// atraparía cualquier etapa futura que mencione "call".
+const LAST_CALL_STAGE = "last call";
+
+export function isLastCallStage(stageName: string | null): boolean {
+  if (!stageName) return false;
+  return normalizeStage(stageName).replace(/^\d+\.\s*/, "") === LAST_CALL_STAGE;
+}
+
 // ── Fechas de apartado y cierre: campos de la oportunidad ─────────────────────
 //
 // Desde 2026-09-21 los hitos de dinero NO salen de la bitácora ni de la etapa:

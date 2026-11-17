@@ -11,10 +11,11 @@ import {
   fieldDateToLocalDay,
   epochToUtcDay,
   isGanadoStage,
+  isLastCallStage,
 } from "../lib/pmi-stages";
 import type { Opportunity, Pipeline, Contact, Appointment } from "../lib/types";
 import {
-  monthWeeks, monthDays, semaphore, conversions, collectEvents, emptyCounts, addEvent, sumCounts,
+  monthWeeks, monthDays, semaphore, conversions, collectEvents, lastCallContactSet, emptyCounts, addEvent, sumCounts,
   PMI_OBJECTIVES, scaleObjectives, UNASSIGNED, buildPmiMonth, monthLabel, shiftMonth, buildPmiYear,
   buildPmiQuarter, quarterOf, quarterMonths, quarterLabel,
 } from "../lib/pmi";
@@ -184,6 +185,27 @@ function engineMain() {
     "dos 'showed' del mismo lead cuentan una (la primera, no la de la lista); la primera de cP fue en agosto");
   assert.equal(events.find((e) => e.id === "c3")?.pauta, false);
   assert.equal(events.find((e) => e.kind === "apartados")?.monto, 3_988_119.69);
+
+  // "Last Call" no es lead recibido (Condesa): el contacto sale del conteo
+  // mientras TODAS sus oportunidades estén ahí, y vuelve solo al rescatarlo.
+  assert.ok(isLastCallStage("Last Call") && isLastCallStage(" last call ") && isLastCallStage("00. Last Call"));
+  for (const s of ["01. Contacto En Seguimiento", "Lead Recibido (Ventas)", "Call Center", "Negocio Perdido", null])
+    assert.equal(isLastCallStage(s), false, String(s));
+  const day = (id: string) => contact({ id, createdAt: "2026-09-10T18:00:00.000Z", assignedTo: "Arely" });
+  const leadIds = (opps: Opportunity[]) =>
+    collectEvents({ contacts: ["a", "b", "c", "d", "e"].map(day), opportunities: opps, appointments: [], pautas: [] },
+      "2026-09-01", "2026-09-30").filter((e) => e.kind === "leads").map((e) => e.id).sort();
+  const lastCallOpps = [
+    opp({ id: "la", contactId: "a", stage: "Last Call" }),                                   // fuera
+    opp({ id: "lb", contactId: "b", stage: "01. Contacto En Seguimiento" }),                 // rescatado: cuenta
+    opp({ id: "lc1", contactId: "c", stage: "Last Call" }),                                  // otra opp viva: cuenta
+    opp({ id: "lc2", contactId: "c", stage: "02. Cliente Calificado" }),
+    opp({ id: "ld", contactId: "d", status: "lost", stage: "Negocio Perdido",               // perdido DESDE Last Call:
+      customFieldsResolved: { "Última Etapa en el Pipeline": "Last Call" } }),               // sigue fuera
+  ];                                                                                         // "e" no tiene opp: cuenta
+  assert.deepEqual(leadIds(lastCallOpps), ["b", "c", "e"]);
+  assert.deepEqual([...lastCallContactSet(lastCallOpps)].sort(), ["a", "d"]);
+  assert.deepEqual(leadIds([]), ["a", "b", "c", "d", "e"], "sin oportunidades nadie se descarta");
 
   // Acumulación
   const acc = emptyCounts();
