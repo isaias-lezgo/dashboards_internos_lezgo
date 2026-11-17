@@ -93,6 +93,15 @@ export const SCOPES: readonly AccessScope[] = [
     projectIds: ["yconia"],
     tabs: ["pmi"],
   },
+  // Una persona que solo debe ver Lezgo Suite. Todas las pestañas (incluido el
+  // asistente, que escribe en el CRM de ESE proyecto); Desempeño no existe ahí porque
+  // su pipeline no tiene etapa de apartado. Administrar Meta sigue siendo solo de `all`.
+  {
+    id: "lezgo-suite",
+    label: "Lezgo Suite",
+    passwordEnv: "LEZGO_SUITE_ACCESS_PASSWORD",
+    projectIds: ["lezgo-suite"],
+  },
 ];
 
 export const DOMUS_SCOPE_ID = "domus";

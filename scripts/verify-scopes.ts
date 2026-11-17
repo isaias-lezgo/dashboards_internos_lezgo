@@ -112,6 +112,15 @@ for (const [id, projects] of Object.entries(ADVISORS)) {
   assert.deepEqual([...(scope.tabs ?? [])], ["pmi"], `${id} must be exactly the pmi tab`);
 }
 
+// --- the lezgo-suite scope: Lezgo Suite and nothing else, with every tab
+const lezgoSuite = getScope("lezgo-suite");
+if (!lezgoSuite) throw new Error("the lezgo-suite scope must exist");
+assert.deepEqual([...(lezgoSuite.projectIds ?? [])], ["lezgo-suite"], "lezgo-suite must be exactly Lezgo Suite");
+for (const other of rosterIds) {
+  assert.equal(scopeAllows(lezgoSuite, other), other === "lezgo-suite", `lezgo-suite vs ${other}`);
+}
+assert.equal(scopeAllows(lezgoSuite, "un-proyecto-futuro"), false, "lezgo-suite must NOT inherit new projects");
+
 // --- every other scope sees every tab: tabs is opt-in, absent = unrestricted
 for (const scope of SCOPES.filter((s) => s.id !== DESEMPENO_SCOPE_ID && !(s.id in ADVISORS))) {
   for (const tab of ["marketing", "sales", "conversations", "pmi"] as const) {
