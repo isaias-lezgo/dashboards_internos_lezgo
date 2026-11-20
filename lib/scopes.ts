@@ -42,7 +42,7 @@ export const SCOPES: readonly AccessScope[] = [
     id: "domus",
     label: "Proyectos Domus",
     passwordEnv: "DOMUS_ACCESS_PASSWORD",
-    projectIds: ["condesa", "yconia", "plaza-bosques"],
+    projectIds: ["condesa", "yconia", "plaza-bosques", "balvanera"],
   },
   {
     id: "iw",

@@ -41,18 +41,18 @@ for (const scope of SCOPES) {
   }
 }
 
-// --- the domus scope: exactly three projects, and the other three are refused
+// --- the domus scope: exactly four projects, and the other two are refused
 const domus = getScope(DOMUS_SCOPE_ID);
 if (!domus) throw new Error("the domus scope must exist");
 assert.deepEqual(
   [...(domus.projectIds ?? [])].sort(),
-  ["condesa", "plaza-bosques", "yconia"],
-  "domus must be exactly these three projects",
+  ["balvanera", "condesa", "plaza-bosques", "yconia"],
+  "domus must be exactly these four projects",
 );
-for (const id of ["condesa", "yconia", "plaza-bosques"]) {
+for (const id of ["condesa", "yconia", "plaza-bosques", "balvanera"]) {
   assert.equal(scopeAllows(domus, id), true, `domus must allow ${id}`);
 }
-for (const id of ["grand-center", "balvanera", "lezgo-suite"]) {
+for (const id of ["grand-center", "lezgo-suite"]) {
   assert.equal(scopeAllows(domus, id), false, `domus must NOT allow ${id}`);
 }
 

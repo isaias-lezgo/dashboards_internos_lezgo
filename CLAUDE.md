@@ -86,7 +86,7 @@ Required vars in `.env.local`:
   `.env.local` so dotenv doesn't expand it — but paste it **unquoted** in the Vercel
   UI, where quotes become part of the password.
 - `DOMUS_ACCESS_PASSWORD` — the password of the **`domus`** scope. A session opened
-  with it is limited to Condesa Cimatario, Yconia and Plaza Bosques / Meseta (see
+  with it is limited to Condesa Cimatario, Yconia, Plaza Bosques / Meseta and Balvanera (see
   `lib/scopes.ts`). If it is not set, that scope cannot be opened by anyone and the
   deployment behaves as if it did not exist. Same `$` caveat as above.
 - `IW_ACCESS_PASSWORD` — the password of the **`iw`** scope. A session opened with it
@@ -318,7 +318,7 @@ Two cookies, two questions:
 proyectos** puede abrir la sesión. Cada alcance declara su `passwordEnv` y su lista de
 `projectIds` (`null` = todo el roster). Hoy son tres: `all`
 (`DASHBOARD_ACCESS_PASSWORD`, todos), `domus` (`DOMUS_ACCESS_PASSWORD`, solo Condesa,
-Yconia y Plaza Bosques / Meseta), `iw` (`IW_ACCESS_PASSWORD`, solo Condesa) y
+Yconia, Plaza Bosques / Meseta y Balvanera), `iw` (`IW_ACCESS_PASSWORD`, solo Condesa) y
 `desempeno` (`DESEMPENO_ACCESS_PASSWORD`, todos menos Lezgo Suite y **solo la pestaña
 Desempeño**; lista explícita, un proyecto nuevo hay que agregarlo), y cuatro de asesores
 (`asesores-plaza`, `-condesa`, `-balvanera`, `-yconia`: su proyecto y solo Desempeño),
